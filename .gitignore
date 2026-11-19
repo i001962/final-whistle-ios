@@ -1,0 +1,19 @@
+# Xcode
+DerivedData.noindex/
+*.xcuserstate
+xcuserdata/
+*.xcworkspace/xcuserdata/
+
+# Swift Package Manager
+.build/
+Package.resolved
+
+# macOS
+.DS_Store
+
+# Keys and secrets. Never commit custody keys, signer seeds, or any private key.
+*.key
+*-key.txt
+*-signer.txt
+custody-key.txt
+signer-seed.txt

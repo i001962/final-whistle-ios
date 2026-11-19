@@ -7,7 +7,7 @@ A football-first Hypersnap client for iPhone. Classic X/Twitter-style feed, Hype
 - Site: https://final-whistle.app/
 - Apple team: FREE. Mobile only, the user's own phone. No push notifications, no iCloud, no Sign in with Apple. Free builds stop opening after 7 days, and only 3 free-team apps fit on a phone at once.
 - iPhone: iOS 27.2.1. `IPHONEOS_DEPLOYMENT_TARGET` is 26.0, lower than the phone, so it installs.
-- Xcode: 27.2, project format `project.xcproj` (JSON). One app target, SwiftUI, Swift 6.0.
+- Xcode: 26.6 or later, classic project format `project.pbxproj` (works on Xcode 26 and 27). One app target, SwiftUI, Swift 6.0. The earlier `project.xcproj` (Xcode 27.2 JSON) format was removed: Xcode 26 cannot open it.
 
 ## What is built in v1
 
@@ -26,8 +26,8 @@ A football-first Hypersnap client for iPhone. Classic X/Twitter-style feed, Hype
 
 The Linux machine this was written on has no Xcode and no Swift, so nothing here has been built, run in a simulator, or installed on a phone yet. See "Unverified" below.
 
-1. Install Xcode 27.2 or later from the Mac App Store (about 30 GB). Open it once and add the iOS platform. Sign in under Xcode, Settings, Apple Accounts.
-2. **iOS 27.2.1 warning:** the phone is on iOS 27.2.1. The Xcode SDK on the Mac must be 27.2.1 or newer to install onto it. If Xcode 27.2 ships only the 27.2 SDK, update Xcode first. Do not raise the deployment target: it stays at 26.0.
+1. Install Xcode from the Mac App Store (about 30 GB). The project opens in Xcode 26.6 or later. Open it once and add the iOS platform. Sign in under Xcode, Settings, Apple Accounts.
+2. **iOS version warning:** the phone was reported as iOS 27.2.1. Xcode 26.6 ships an iOS 26.x SDK, so it can open this project but it will NOT install onto a 27.2.1 phone. Confirm the phone's real version (Settings, General, About, iOS Version). If it really is 27.2.1, update Xcode to 27.2.1 or newer from the Mac App Store first. Do not raise the deployment target: it stays at 26.0.
 3. Clone this repo, open `FinalWhistle.xcodeproj` in Xcode.
 4. Select the FinalWhistle target, Signing and Capabilities, pick your free personal team. Do not change the bundle ID (`app.final-whistle`).
 5. Resolve packages: Xcode fetches the pinned packages below on first build. Check they resolve before trusting the build.
@@ -82,7 +82,7 @@ BLAKE3 0.2.2 is the weakest pin: a small single-maintainer wrapper over the offi
 
 ## Unverified (needs the Mac)
 
-- The Xcode project file (`project.xcproj`) has not been opened by Xcode. It follows the published Xcode 27.2 JSON schema (verified against the giginet / artemnovichkov references), but `xcprojformatter` / `xcodebuild -list` have not run on it. Run `xcrun xcprojformatter FinalWhistle.xcodeproj` first; if it reports errors, fix the named key, do not guess.
+- The Xcode project file (`project.pbxproj`, classic format) has not been opened by Xcode. It was generated from the earlier `project.xcproj` and validated on Linux with the `pbxproj` parser (3 targets, 16 + 1 + 1 sources, 5 + 4 + 0 package products, all settings read back), but `xcodebuild -list` has not run on it. If Xcode reports an error on open, note the exact message; do not guess.
 - The test targets (`unit-test` / `ui-test` product types, `TEST_HOST` / `BUNDLE_LOADER` settings) are the least-verified part of the project file. If Xcode rejects them, delete the two test targets in Xcode and re-add them from the template; the app target builds without them.
 - Package resolution, Swift compilation, simulator launch, phone install, and every gRPC call from the phone are unverified. The unit-test vectors are verified against Python, but the tests themselves have not run.
 - The Football tab uses cast search, which returns older keyword matches as well as recent ones. That is a Hypersnap search behaviour, not a bug in the app, but it means the tab is not a live football feed.
@@ -93,6 +93,6 @@ BLAKE3 0.2.2 is the weakest pin: a small single-maintainer wrapper over the offi
 - `FinalWhistle/` - SwiftUI app, one target, synchronized folder (new files build automatically)
 - `FinalWhistleTests/` - unit tests, including byte-exact protobuf / EIP-712 / BLAKE3 vectors
 - `FinalWhistleUITests/` - one UI test of the main loop (launch, browse without an account)
-- `FinalWhistle.xcodeproj/project.xcproj` - Xcode 27.2 JSON project file
+- `FinalWhistle.xcodeproj/project.pbxproj` - classic Xcode project file (Xcode 26 and 27)
 - `Protos/` - Hypersnap `.proto` files (reference only, not compiled)
 - `scripts/phone.sh` - build, install over the old copy, launch, confirm still running

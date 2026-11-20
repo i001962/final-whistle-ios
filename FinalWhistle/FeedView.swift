@@ -17,6 +17,7 @@ struct FeedView: View {
     @State private var showingCompose = false
     @State private var replyingTo: Cast?
     @State private var quoting: Cast?
+    @State private var selectedQuoted: Cast?
     @State private var notice: String?
 
     // /football channel image, from the channel list at
@@ -89,6 +90,7 @@ struct FeedView: View {
                                     cast: cast,
                                     onReply: { replyingTo = cast },
                                     onQuote: { quoting = cast },
+                                    onOpenQuote: { selectedQuoted = $0 },
                                     onReacted: { notice = $0 }
                                 )
                             }
@@ -149,6 +151,9 @@ struct FeedView: View {
         .navigationDestination(for: Cast.self) { cast in
             ThreadView(cast: cast)
         }
+        .navigationDestination(item: $selectedQuoted) { cast in
+            ThreadView(cast: cast)
+        }
     }
 }
 
@@ -158,8 +163,25 @@ struct CastRow: View {
     let cast: Cast
     let onReply: () -> Void
     let onQuote: () -> Void
+    /// Opens a quoted cast's thread. Nil renders the quoted card without
+    /// a tap target.
+    let onOpenQuote: ((Cast) -> Void)?
     let onReacted: (String) -> Void
+    /// Inside a thread the replies are already on screen, so the
+    /// "View N replies" hint would be silly there.
+    var inThread: Bool = false
     @State private var working = false
+
+    init(cast: Cast, onReply: @escaping () -> Void, onQuote: @escaping () -> Void,
+         onOpenQuote: ((Cast) -> Void)? = nil, onReacted: @escaping (String) -> Void,
+         inThread: Bool = false) {
+        self.cast = cast
+        self.onReply = onReply
+        self.onQuote = onQuote
+        self.onOpenQuote = onOpenQuote
+        self.onReacted = onReacted
+        self.inThread = inThread
+    }
 
     private var liked: Bool { feed.isLiked(cast) }
     private var quoted: Bool { feed.isQuoted(cast) }
@@ -199,10 +221,10 @@ struct CastRow: View {
                 .foregroundStyle(Color.fwText)
 
             if let quotedRef = cast.embeds?.first(where: { $0.castID != nil })?.castID {
-                QuotedCastView(ref: quotedRef)
+                QuotedCastView(ref: quotedRef, onOpen: onOpenQuote)
             }
 
-            if cast.replies.count > 0 {
+            if !inThread, cast.replies.count > 0 {
                 HStack(spacing: 4) {
                     Text("View \(cast.replies.count) \(cast.replies.count == 1 ? "reply" : "replies")")
                     Image(systemName: "chevron.right")
@@ -264,39 +286,55 @@ struct CastRow: View {
 }
 
 /// A quoted cast embedded in a cast: the quoted author's name and text,
-/// fetched by hash. Tapping it opens that cast's thread.
+/// fetched by hash. Tapping it opens that cast's thread via onOpen.
+///
+/// This must NOT be a NavigationLink: it lives inside the card, and the
+/// card itself is already a NavigationLink to its own thread. A nested
+/// link is the reason quote reposts rendered with no quoted cast at
+/// all — the inner link swallowed the preview — so a quote looked like
+/// a standalone post with no reference to what it quoted.
 struct QuotedCastView: View {
     let ref: CastEmbed.CastIDRef
+    let onOpen: ((Cast) -> Void)?
     @State private var quoted: Cast?
     @State private var failed = false
+    @State private var retryCount = 0
 
     var body: some View {
         Group {
             if let quoted {
-                NavigationLink(value: quoted) {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("@\(quoted.author.displayUsername)")
-                            .font(.subheadline)
-                            .fontWeight(.semibold)
-                            .foregroundStyle(Color.fwText)
-                        Text(quoted.text)
-                            .font(.subheadline)
-                            .foregroundStyle(Color.fwMuted)
-                            .lineLimit(4)
-                    }
-                    .padding(10)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(Color.fwPanelSoft, in: RoundedRectangle(cornerRadius: 12))
-                    .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.fwLine, lineWidth: 1))
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("@\(quoted.author.displayUsername)")
+                        .font(.subheadline)
+                        .fontWeight(.semibold)
+                        .foregroundStyle(Color.fwText)
+                    Text(quoted.text)
+                        .font(.subheadline)
+                        .foregroundStyle(Color.fwMuted)
+                        .lineLimit(4)
                 }
-                .buttonStyle(.plain)
+                .padding(10)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(Color.fwPanelSoft, in: RoundedRectangle(cornerRadius: 12))
+                .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.fwLine, lineWidth: 1))
+                .contentShape(Rectangle())
+                .onTapGesture {
+                    if let onOpen { onOpen(quoted) }
+                }
             } else if failed {
-                Text("Quoted cast unavailable")
-                    .font(.footnote)
-                    .foregroundStyle(Color.fwMuted)
+                Button("Quoted cast did not load — tap to retry") {
+                    failed = false
+                    retryCount += 1
+                }
+                .font(.footnote)
+                .foregroundStyle(Color.fwAccentSoft)
+            } else {
+                ProgressView()
+                    .tint(Color.fwMuted)
+                    .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
-        .task {
+        .task(id: retryCount) {
             do {
                 quoted = try await FeedService.userCast(hash: ref.hash)
             } catch {

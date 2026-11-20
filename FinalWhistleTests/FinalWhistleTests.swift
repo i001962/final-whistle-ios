@@ -94,6 +94,25 @@ final class FinalWhistleTests: XCTestCase {
         XCTAssertEqual(cast.directReplies?.first?.author.displayUsername, "kmacb.eth")
     }
 
+    func testFeedDecodesQuoteEmbedAndMentions() throws {
+        // The exact shape of the user's quote repost in the live
+        // parent_urls feed: a cast_id embed plus a mention whose range
+        // is empty (the name is stripped from the stored text).
+        let json = """
+        {"casts": [{"hash": "048b548f", "text": "Scout brings back memories of ’s project back in the day scouting devs",
+        "timestamp": "2026-11-20T19:59:05.000Z",
+        "author": {"fid": 4294967327, "username": "fid:4294967327"},
+        "reactions": {"likes_count": 0, "recasts_count": 0}, "replies": {"count": 0},
+        "embeds": [{"cast_id": {"fid": 318845, "hash": "f6deaf70d838885e51857c91a020287ce11f2647"}}],
+        "mentioned_profiles": [{"fid": 472, "username": "ccarella"}],
+        "mentioned_profiles_ranges": [{"start": 30, "end": 30}]}]}
+        """.data(using: .utf8)!
+        let feed = try FeedService.makeDecoder().decode(TrendingFeedResponse.self, from: json)
+        let cast = feed.casts[0]
+        XCTAssertEqual(cast.embeds?.first?.castID?.fid.value, 318845)
+        XCTAssertEqual(cast.embeds?.first?.castID?.hash, "f6deaf70d838885e51857c91a020287ce11f2647")
+    }
+
     func testReactionBodyBytes() {
         let data = FarcasterMessages.reactionData(
             fid: 4294967310, timestamp: 123456, reactionType: 1,

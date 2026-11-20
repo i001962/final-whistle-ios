@@ -16,6 +16,7 @@ struct ThreadView: View {
     @State private var failed: String?
     @State private var replyingTo: Cast?
     @State private var quoting: Cast?
+    @State private var selectedQuoted: Cast?
     @State private var notice: String?
 
     var body: some View {
@@ -29,7 +30,9 @@ struct ThreadView: View {
                                     cast: parent,
                                     onReply: { replyingTo = parent },
                                     onQuote: { quoting = parent },
-                                    onReacted: { notice = $0 }
+                                    onOpenQuote: { selectedQuoted = $0 },
+                                    onReacted: { notice = $0 },
+                                    inThread: true
                                 )
                             }
                             .buttonStyle(.plain)
@@ -40,7 +43,9 @@ struct ThreadView: View {
                             cast: root,
                             onReply: { replyingTo = root },
                             onQuote: { quoting = root },
-                            onReacted: { notice = $0 }
+                            onOpenQuote: { selectedQuoted = $0 },
+                            onReacted: { notice = $0 },
+                            inThread: true
                         )
 
                         if identity.isSignedIn {
@@ -74,7 +79,9 @@ struct ThreadView: View {
                                         cast: reply,
                                         onReply: { replyingTo = reply },
                                         onQuote: { quoting = reply },
-                                        onReacted: { notice = $0 }
+                                        onOpenQuote: { selectedQuoted = $0 },
+                                        onReacted: { notice = $0 },
+                                        inThread: true
                                     )
                                 }
                                 .buttonStyle(.plain)
@@ -85,7 +92,9 @@ struct ThreadView: View {
                                             cast: first,
                                             onReply: { replyingTo = first },
                                             onQuote: { quoting = first },
-                                            onReacted: { notice = $0 }
+                                            onOpenQuote: { selectedQuoted = $0 },
+                                            onReacted: { notice = $0 },
+                                            inThread: true
                                         )
                                     }
                                     .buttonStyle(.plain)
@@ -141,6 +150,9 @@ struct ThreadView: View {
             .presentationDetents([.large])
         }
         .navigationDestination(for: Cast.self) { cast in
+            ThreadView(cast: cast)
+        }
+        .navigationDestination(item: $selectedQuoted) { cast in
             ThreadView(cast: cast)
         }
     }

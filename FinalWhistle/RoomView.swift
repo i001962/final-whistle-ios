@@ -17,10 +17,10 @@ struct ChatRoom: Identifiable, Hashable {
 
     static let all: [ChatRoom] = [
         ChatRoom(
-            id: "1",
+            id: "gantry",
             title: "The Gantry",
-            subtitle: "Live match chat — final-whistle.app/chat/1",
-            parentURL: "https://final-whistle.app/chat/1"
+            subtitle: "Live match chat — final-whistle.app/chat/gantry",
+            parentURL: "https://final-whistle.app/chat/gantry"
         ),
     ]
 }

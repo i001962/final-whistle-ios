@@ -19,11 +19,38 @@ final class Router: ObservableObject {
 /// Hypersnap native FID) lives behind the Account button, and is only
 /// needed to post, reply, like, or recast.
 ///
-/// The top bar is the app's icon navigation: the /football channel icon
-/// next to your profile picture on the left, and a feed/videos pill in
-/// the middle. There is no "Football channel" text header any more.
-enum AppTab {
-    case feed, videos
+/// Navigation follows the Footy app (footy.vercel.app): a top bar with
+/// the /football channel icon next to your profile picture, and a
+/// bottom tab bar — Feed, Videos, Scores, Fantasy. Feed and Videos are
+/// live; Scores and Fantasy are menus first, feeds next, so they show
+/// a placeholder for now. No favourite clubs/countries strip yet.
+///
+/// LESSON (2026-11-20): the top bar was first built as toolbar items
+/// on the NavigationStack's Group — they silently never rendered (the
+/// bar was empty in the simulator). Both bars here are plain views, so
+/// they cannot vanish like that. The system navigation bar is hidden
+/// and the top bar's back chevron (plus swipe-back) is the way out of
+/// a thread.
+enum AppTab: CaseIterable {
+    case feed, videos, scores, fantasy
+
+    var label: String {
+        switch self {
+        case .feed: return "Feed"
+        case .videos: return "Videos"
+        case .scores: return "Scores"
+        case .fantasy: return "Fantasy"
+        }
+    }
+
+    var icon: String {
+        switch self {
+        case .feed: return "soccerball"
+        case .videos: return "play.rectangle.on.rectangle"
+        case .scores: return "sportscourt"
+        case .fantasy: return "star"
+        }
+    }
 }
 
 struct ContentView: View {
@@ -39,63 +66,44 @@ struct ContentView: View {
     private static let channelImageURL = URL(string: "https://imagedelivery.net/BXluQx4ige9GuW0Ia56BHw/e457005e-e084-4e2e-288b-d94160184700/original")!
 
     var body: some View {
-        NavigationStack(path: $router.path) {
-            Group {
-                switch selectedTab {
-                case .feed:
-                    FeedView()
-                case .videos:
-                    VideosView()
-                }
-            }
-            .toolbar {
-                ToolbarItem(placement: .navigationBarLeading) {
-                    HStack(spacing: 10) {
-                        AsyncImage(url: Self.channelImageURL) { image in
-                            image.resizable().scaledToFill()
-                        } placeholder: {
-                            Color.fwPanelSoft
-                        }
-                        .frame(width: 32, height: 32)
-                        .clipShape(RoundedRectangle(cornerRadius: 8))
-                        .accessibilityLabel("Football channel")
+        VStack(spacing: 0) {
+            topBar
 
-                        Button {
-                            showingProfile = true
-                        } label: {
-                            if let pfpURL = identity.profile?.pfpURL {
-                                AsyncImage(url: pfpURL) { image in
-                                    image.resizable().scaledToFill()
-                                } placeholder: {
-                                    Color.fwPanelSoft
-                                }
-                                .frame(width: 32, height: 32)
-                                .clipShape(Circle())
-                            } else {
-                                Image(systemName: identity.isSignedIn ? "person.crop.circle.fill" : "person.crop.circle")
-                                    .font(.title2)
-                                    .foregroundStyle(Color.fwAccent)
-                            }
-                        }
-                        .accessibilityLabel(identity.isSignedIn ? "Account" : "Sign in")
+            NavigationStack(path: $router.path) {
+                Group {
+                    switch selectedTab {
+                    case .feed:
+                        FeedView()
+                            .toolbar(.hidden, for: .navigationBar)
+                    case .videos:
+                        VideosView()
+                            .toolbar(.hidden, for: .navigationBar)
+                    case .scores:
+                        ComingSoonView(
+                            icon: "sportscourt",
+                            title: "Scores",
+                            body: "Live scores are coming soon — the scores feed is next, after the menus."
+                        )
+                        .toolbar(.hidden, for: .navigationBar)
+                    case .fantasy:
+                        ComingSoonView(
+                            icon: "star",
+                            title: "Fantasy",
+                            body: "Your FPL mini leagues will live here, signed in with your Final Whistle account."
+                        )
+                        .toolbar(.hidden, for: .navigationBar)
                     }
                 }
-                ToolbarItem(placement: .principal) {
-                    HStack(spacing: 0) {
-                        tabButton(.feed, icon: "soccerball", label: "Feed")
-                        tabButton(.videos, icon: "play.rectangle.on.rectangle", label: "Videos")
-                    }
-                    .padding(3)
-                    .background(Color.fwPanel, in: Capsule())
-                    .overlay(Capsule().stroke(Color.fwLine, lineWidth: 1))
+                .navigationDestination(for: FID.self) { fid in
+                    UserProfileView(fid: fid)
                 }
             }
-            .sheet(isPresented: $showingProfile) {
-                ProfileView()
-            }
-            .navigationDestination(for: FID.self) { fid in
-                UserProfileView(fid: fid)
-            }
+
+            tabBar
+        }
+        .background(Color.fwBackground)
+        .sheet(isPresented: $showingProfile) {
+            ProfileView()
         }
         // Mention links (fw://mention/<fid>) push that user's profile;
         // every other link (bare URLs in cast text, video tiles, link
@@ -110,18 +118,107 @@ struct ContentView: View {
         })
     }
 
-    private func tabButton(_ tab: AppTab, icon: String, label: String) -> some View {
-        Button {
-            selectedTab = tab
-        } label: {
-            Label(label, systemImage: icon)
-                .labelStyle(.iconOnly)
-                .font(.headline)
-                .foregroundStyle(selectedTab == tab ? .white : Color.fwMuted)
-                .frame(width: 44, height: 32)
-                .background(selectedTab == tab ? Color.fwAccent : Color.clear, in: Capsule())
+    /// Channel icon next to the account picture, left; a back chevron
+    /// appears in front of them whenever a thread or profile is open.
+    private var topBar: some View {
+        HStack(spacing: 10) {
+            if !router.path.isEmpty {
+                Button {
+                    router.path.removeLast()
+                } label: {
+                    Image(systemName: "chevron.left")
+                        .font(.headline)
+                        .foregroundStyle(Color.fwText)
+                        .frame(width: 32, height: 32)
+                        .background(Color.fwPanel, in: Circle())
+                }
+                .accessibilityLabel("Back")
+            }
+
+            AsyncImage(url: Self.channelImageURL) { image in
+                image.resizable().scaledToFill()
+            } placeholder: {
+                Color.fwPanelSoft
+            }
+            .frame(width: 32, height: 32)
+            .clipShape(RoundedRectangle(cornerRadius: 8))
+            .accessibilityLabel("Football channel")
+
+            Button {
+                showingProfile = true
+            } label: {
+                if let pfpURL = identity.profile?.pfpURL {
+                    AsyncImage(url: pfpURL) { image in
+                        image.resizable().scaledToFill()
+                    } placeholder: {
+                        Color.fwPanelSoft
+                    }
+                    .frame(width: 32, height: 32)
+                    .clipShape(Circle())
+                } else {
+                    Image(systemName: identity.isSignedIn ? "person.crop.circle.fill" : "person.crop.circle")
+                        .font(.title2)
+                        .foregroundStyle(Color.fwAccent)
+                }
+            }
+            .accessibilityLabel(identity.isSignedIn ? "Account" : "Sign in")
+
+            Spacer()
         }
-        .accessibilityLabel(label)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 8)
+    }
+
+    /// Footy-style floating tab bar. Switching tabs pops any open
+    /// thread first, so you always land on the section's top.
+    private var tabBar: some View {
+        HStack(spacing: 0) {
+            ForEach(AppTab.allCases, id: \.self) { tab in
+                Button {
+                    router.path = NavigationPath()
+                    selectedTab = tab
+                } label: {
+                    VStack(spacing: 3) {
+                        Image(systemName: tab.icon)
+                            .font(.title3)
+                        Text(tab.label)
+                            .font(.caption2)
+                            .fontWeight(.semibold)
+                    }
+                    .foregroundStyle(selectedTab == tab ? .white : Color.fwMuted)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 8)
+                    .background(
+                        selectedTab == tab ? Color.fwAccent : Color.clear,
+                        in: RoundedRectangle(cornerRadius: 14)
+                    )
+                }
+                .accessibilityLabel(tab.label)
+            }
+        }
+        .padding(6)
+        .background(Color.fwPanel, in: RoundedRectangle(cornerRadius: 22))
+        .overlay(RoundedRectangle(cornerRadius: 22).stroke(Color.fwLine, lineWidth: 1))
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
+    }
+}
+
+/// A section that has a menu entry but no feed yet.
+private struct ComingSoonView: View {
+    let icon: String
+    let title: String
+    let body: String
+
+    var body: some View {
+        ContentUnavailableView(
+            title,
+            systemImage: icon,
+            description: Text(body)
+        )
+        .foregroundStyle(Color.fwMuted)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Color.fwBackground)
     }
 }
 

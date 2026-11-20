@@ -110,6 +110,10 @@ struct ThreadView: View {
         .background(Color.fwBackground)
         .navigationTitle("Thread")
         .navigationBarTitleDisplayMode(.inline)
+        // The system bar is hidden everywhere: ContentView's top bar
+        // (back chevron + channel icon + pfp) is the navigation chrome,
+        // and swipe-back still works.
+        .toolbar(.hidden, for: .navigationBar)
         .task { await load() }
         .sheet(item: $replyingTo) { target in
             ComposeView(parent: target, onPosted: { Task { await load() } })

@@ -11,9 +11,23 @@ struct FeedView: View {
     @State private var replyingTo: Cast?
     @State private var notice: String?
 
+    // /football channel image, from the channel list at
+    // hypersnap-stats.qstorage.quilibrium.com/all-channels-formatted.json
+    // (id "football", 25,587 followers, 1,143 members, public casting).
+    private static let channelImageURL = URL(string: "https://imagedelivery.net/BXluQx4ige9GuW0Ia56BHw/e457005e-e084-4e2e-288b-d94160184700/original")!
+
     var body: some View {
         VStack(spacing: 0) {
-            HStack {
+            HStack(spacing: 12) {
+                AsyncImage(url: Self.channelImageURL) { image in
+                    image.resizable().scaledToFill()
+                } placeholder: {
+                    Color.fwPanelSoft
+                }
+                .frame(width: 44, height: 44)
+                .clipShape(RoundedRectangle(cornerRadius: 10))
+                .accessibilityHidden(true)
+
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Football channel")
                         .font(.caption)

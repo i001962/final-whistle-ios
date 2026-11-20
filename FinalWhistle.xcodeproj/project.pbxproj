@@ -25,15 +25,15 @@
 		013C29725C1B0BF18A9AD33E /* Protobuf.swift in Sources */ = {isa = PBXBuildFile; fileRef = B6EFCDCBB7FF4945D4CF4C35 /* Protobuf.swift */; };
 		F5AF2A5DD234884A83242B18 /* FinalWhistleTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8B28F54A9F578645FF3E1E30 /* FinalWhistleTests.swift */; };
 		CF3614F4CC43DCB69493CC11 /* FinalWhistleUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F3024E144FB31DC0732F9A9E /* FinalWhistleUITests.swift */; };
-		BB1667EC307679308EDE2C07 /* GRPCCore in Frameworks */ = {isa = PBXBuildFile; fileRef = 37D7DFF669923971221B0DD2 /* GRPCCore */; };
-		ADAD11E7D98E229320A708EA /* GRPCNIOTransportHTTP2 in Frameworks */ = {isa = PBXBuildFile; fileRef = 3A8FD246C333DDFAD21FAE5A /* GRPCNIOTransportHTTP2 */; };
-		9E4B314D8390E83BEFF4FC6B /* P256K in Frameworks */ = {isa = PBXBuildFile; fileRef = 3BFDAA80BD6A227D0E3C82D2 /* P256K */; };
-		FE977C0AF83EF76E607A9189 /* CryptoSwift in Frameworks */ = {isa = PBXBuildFile; fileRef = 17AF5294BC7D398EF89E832F /* CryptoSwift */; };
-		23340965340AF097CD4E4B66 /* BLAKE3 in Frameworks */ = {isa = PBXBuildFile; fileRef = 3DE11DAE9459DC19FB808E9A /* BLAKE3 */; };
-		D61721EC1F2E9B0544C8B41E /* GRPCCore in Frameworks */ = {isa = PBXBuildFile; fileRef = 37D7DFF669923971221B0DD2 /* GRPCCore */; };
-		DD1D75A5A6B8E01BB580D0CA /* P256K in Frameworks */ = {isa = PBXBuildFile; fileRef = 3BFDAA80BD6A227D0E3C82D2 /* P256K */; };
-		084F2BF7851ECB92C17D404F /* CryptoSwift in Frameworks */ = {isa = PBXBuildFile; fileRef = 17AF5294BC7D398EF89E832F /* CryptoSwift */; };
-		C352E822EEE8D2B6E254F92C /* BLAKE3 in Frameworks */ = {isa = PBXBuildFile; fileRef = 3DE11DAE9459DC19FB808E9A /* BLAKE3 */; };
+		BB1667EC307679308EDE2C07 /* GRPCCore in Frameworks */ = {isa = PBXBuildFile; productRef = 37D7DFF669923971221B0DD2 /* GRPCCore */; };
+		ADAD11E7D98E229320A708EA /* GRPCNIOTransportHTTP2 in Frameworks */ = {isa = PBXBuildFile; productRef = 3A8FD246C333DDFAD21FAE5A /* GRPCNIOTransportHTTP2 */; };
+		9E4B314D8390E83BEFF4FC6B /* P256K in Frameworks */ = {isa = PBXBuildFile; productRef = 3BFDAA80BD6A227D0E3C82D2 /* P256K */; };
+		FE977C0AF83EF76E607A9189 /* CryptoSwift in Frameworks */ = {isa = PBXBuildFile; productRef = 17AF5294BC7D398EF89E832F /* CryptoSwift */; };
+		23340965340AF097CD4E4B66 /* BLAKE3 in Frameworks */ = {isa = PBXBuildFile; productRef = 3DE11DAE9459DC19FB808E9A /* BLAKE3 */; };
+		D61721EC1F2E9B0544C8B41E /* GRPCCore in Frameworks */ = {isa = PBXBuildFile; productRef = 37D7DFF669923971221B0DD2 /* GRPCCore */; };
+		DD1D75A5A6B8E01BB580D0CA /* P256K in Frameworks */ = {isa = PBXBuildFile; productRef = 3BFDAA80BD6A227D0E3C82D2 /* P256K */; };
+		084F2BF7851ECB92C17D404F /* CryptoSwift in Frameworks */ = {isa = PBXBuildFile; productRef = 17AF5294BC7D398EF89E832F /* CryptoSwift */; };
+		C352E822EEE8D2B6E254F92C /* BLAKE3 in Frameworks */ = {isa = PBXBuildFile; productRef = 3DE11DAE9459DC19FB808E9A /* BLAKE3 */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */

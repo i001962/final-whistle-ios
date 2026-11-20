@@ -82,14 +82,14 @@ struct ContentView: View {
                         ComingSoonView(
                             icon: "sportscourt",
                             title: "Scores",
-                            body: "Live scores are coming soon — the scores feed is next, after the menus."
+                            text: "Live scores are coming soon — the scores feed is next, after the menus."
                         )
                         .toolbar(.hidden, for: .navigationBar)
                     case .fantasy:
                         ComingSoonView(
                             icon: "star",
                             title: "Fantasy",
-                            body: "Your FPL mini leagues will live here, signed in with your Final Whistle account."
+                            text: "Your FPL mini leagues will live here, signed in with your Final Whistle account."
                         )
                         .toolbar(.hidden, for: .navigationBar)
                     }
@@ -205,16 +205,19 @@ struct ContentView: View {
 }
 
 /// A section that has a menu entry but no feed yet.
+// NOTE: the text property is called `text`, not `body` — a stored
+// property named `body` would redeclare View's own `body` and the
+// build fails with "Invalid redeclaration of 'body'".
 private struct ComingSoonView: View {
     let icon: String
     let title: String
-    let body: String
+    let text: String
 
     var body: some View {
         ContentUnavailableView(
             title,
             systemImage: icon,
-            description: Text(body)
+            description: Text(text)
         )
         .foregroundStyle(Color.fwMuted)
         .frame(maxWidth: .infinity, maxHeight: .infinity)

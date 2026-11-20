@@ -75,22 +75,29 @@ for devs in json.load(sys.stdin)['devices'].values():
             print(d['name']); sys.exit()
 ")
 xcrun simctl boot "$DEVICE" 2>/dev/null || true
-# Open the Simulator window by its full path inside the selected Xcode.
-# `open -a Simulator` fails with "Unable to find application named
-# 'Simulator'" when LaunchServices has not registered it (seen
-# 2026-11-20 after the Xcode 27.2 runtime download), and under set -e
-# that killed the whole script before the build. The GUI open is only
-# for showing the window — the boot/install/launch below work without
-# it — so never let it abort the run. NOTE: xcode-select -p already
-# ends in Contents/Developer, so the app is at
-# $DEVELOPER_DIR/Applications/Simulator.app — the 3b7d237 version used
-# ../Applications (Contents/Applications, does not exist) and fell
-# straight back to the broken `open -a`.
-SIM_APP="$(xcode-select -p)/Applications/Simulator.app"
-if [[ -d "$SIM_APP" ]]; then
-    open "$SIM_APP" || echo "Warning: could not open $SIM_APP; open it manually from Xcode if you want the window." >&2
+# Open the Simulator window. `open -a Simulator` fails with "Unable to
+# find application named 'Simulator'" when LaunchServices has not
+# registered it, and the single-path guess missed on this Mac too (the
+# -d test failed even with the corrected Developer/Applications path),
+# so search every likely home for it, then fall back to a Spotlight
+# lookup by bundle ID. The GUI open is only for showing the window —
+# the boot/install/launch below work without it — so never let it abort
+# the run; if nothing is found, say exactly what was tried.
+SIM_APP=""
+for cand in \
+    "$(xcode-select -p 2>/dev/null)/Applications/Simulator.app" \
+    /Applications/Xcode.app/Contents/Developer/Applications/Simulator.app \
+    "$HOME/Applications/Xcode.app/Contents/Developer/Applications/Simulator.app" \
+    /Applications/Xcode-beta.app/Contents/Developer/Applications/Simulator.app; do
+    if [[ -d "$cand" ]]; then SIM_APP="$cand"; break; fi
+done
+if [[ -z "$SIM_APP" ]]; then
+    SIM_APP=$(mdfind "kMDItemCFBundleIdentifier == 'com.apple.iphonesimulator'" 2>/dev/null | head -n 1)
+fi
+if [[ -n "$SIM_APP" ]]; then
+    open "$SIM_APP" || echo "Warning: could not open $SIM_APP." >&2
 else
-    open -a Simulator || echo "Warning: could not open the Simulator app; open it manually from Xcode if you want the window." >&2
+    echo "Warning: Simulator.app not found (xcode-select: $(xcode-select -p 2>/dev/null)). The build/install/launch below still run; open Simulator from Xcode's Open Developer Tool menu to see the app." >&2
 fi
 echo "Simulator: $DEVICE_NAME ($DEVICE)"
 

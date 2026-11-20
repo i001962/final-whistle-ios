@@ -10,6 +10,13 @@
 #      local diff has no signing changes, this script discards it and
 #      pulls. If it DOES contain a DEVELOPMENT_TEAM / CODE_SIGN change,
 #      it stashes the file, pulls, and pops the stash back.
+#      project.pbxproj is NEVER merged: when the stash pop conflicts
+#      (it does whenever the remote pbxproj changed the same regions,
+#      i.e. every new-file commit), the script heals it itself — abort
+#      the merge, drop the leftover stash, take the remote pbxproj.
+#      The cost is the team selection, which lives in the discarded
+#      copy; re-select it once in Xcode for phone builds. The same
+#      heal runs at startup for a conflict an earlier run left behind.
 #   2. Adding the team — not needed for the simulator at all. Simulator
 #      builds run with signing off (CODE_SIGNING_ALLOWED=NO), so there
 #      is no "requires a development team" step. The team only matters
@@ -27,6 +34,40 @@ LOG=$OUT/sim.log; mkdir -p "$OUT"
 fail() { grep -E 'error:|ERROR:|FailureReason' "$LOG" | sort -u | head -20 || true; echo "$1 failed. Log: $LOG" >&2; exit 1; }
 
 # 1. Pull, handling Xcode's local rewrite of project.pbxproj.
+#
+# Heal a conflicted project.pbxproj by taking the remote version.
+# Only ever called for that one file: any other unmerged file stops
+# the script instead. The team selection is lost with the discarded
+# copy — the note says so, and the simulator does not need it.
+heal_pbxproj_conflict() {
+  # A plain `git pull` conflict leaves MERGE_HEAD, so abort that too;
+  # a `git stash pop` conflict does NOT (modern git leaves unmerged
+  # index entries with no merge state), so the abort is skipped there
+  # and the line below does the resolving. Plain `git checkout --`
+  # refuses an unmerged path; `git checkout HEAD --` takes HEAD's
+  # version and clears the unmerged stages.
+  if git rev-parse -q --verify MERGE_HEAD >/dev/null; then
+    git merge --abort
+  fi
+  if [ -n "$(git stash list)" ] \
+     && [ "$(git stash show --name-only 'stash@{0}' | sort -u)" = "FinalWhistle.xcodeproj/project.pbxproj" ]; then
+    git stash drop
+  fi
+  git checkout HEAD -- FinalWhistle.xcodeproj/project.pbxproj
+  echo "project.pbxproj was conflicted; took the remote version. If you build for a real phone, re-select your team once in Xcode (Signing & Capabilities) — the simulator does not need it." >&2
+}
+
+if git ls-files -u | grep -q .; then
+  if [ -z "$(git ls-files -u | awk '{print $4}' | sort -u | grep -v '^FinalWhistle.xcodeproj/project.pbxproj$')" ]; then
+    echo "Found a leftover project.pbxproj conflict; healing it."
+    heal_pbxproj_conflict
+  else
+    echo "Unmerged files other than project.pbxproj; resolve them, then re-run." >&2
+    git ls-files -u | awk '{print $4}' | sort -u >&2
+    exit 1
+  fi
+fi
+
 STASHED=""
 if ! git diff --quiet -- FinalWhistle.xcodeproj/project.pbxproj; then
   if git diff -- FinalWhistle.xcodeproj/project.pbxproj | grep -qE 'DEVELOPMENT_TEAM|CODE_SIGN'; then
@@ -40,7 +81,10 @@ if ! git diff --quiet -- FinalWhistle.xcodeproj/project.pbxproj; then
 fi
 git pull --ff-only origin main || { echo "git pull failed (local changes elsewhere?). Resolve them, then re-run." >&2; exit 1; }
 if [ -n "$STASHED" ]; then
-  git stash pop || echo "Stash pop conflicted; your signing change is in the stash (git stash list)." >&2
+  if ! git stash pop; then
+    echo "Stash pop conflicted; healing it the same way (remote pbxproj wins)." >&2
+    heal_pbxproj_conflict
+  fi
 fi
 echo "Pulled $(git rev-parse --short HEAD)."
 

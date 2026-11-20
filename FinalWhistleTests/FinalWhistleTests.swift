@@ -135,7 +135,7 @@ final class FinalWhistleTests: XCTestCase {
         XCTAssertEqual(videos[0].id, "MlTgU-gZY8I")
         XCTAssertEqual(videos[0].title, "Arsenal's FPL Leak")
         XCTAssertEqual(videos[0].thumbnailURL?.absoluteString, "https://i2.ytimg.com/vi/MlTgU-gZY8I/hqdefault.jpg")
-        XCTAssertEqual(videos[0].description, "Episode one.")
+        XCTAssertEqual(videos[0].summary, "Episode one.")
         XCTAssertEqual(videos[0].watchURL.absoluteString, "https://www.youtube.com/watch?v=MlTgU-gZY8I")
         XCTAssertNotNil(videos[0].published)
         XCTAssertEqual(videos[1].id, "A4Uf8GOg-Kk")

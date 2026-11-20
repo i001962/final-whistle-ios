@@ -13,7 +13,10 @@ struct YouTubeVideo: Identifiable, Equatable {
     let title: String
     let published: Date?
     let thumbnailURL: URL?
-    let description: String?
+    // Named `summary`, not `description`: a stored `description` in
+    // the NSObject-based RSS parser below would try to override
+    // NSObject's own `description` and the build fails on it.
+    let summary: String?
 
     /// The shareable deep link: opens in the YouTube app when tapped
     /// elsewhere, and is what the share sheet hands out.
@@ -57,7 +60,11 @@ enum YouTubeService {
         private var title = ""
         private var published: Date?
         private var thumbnailURL: URL?
-        private var description = ""
+        // NOT `description`: this class inherits from NSObject, and a
+        // stored property called `description` would override NSObject's
+        // own `description` — "Cannot override with a stored property
+        // 'description'".
+        private var summaryText = ""
 
         func parser(_ parser: XMLParser, didStartElement elementName: String,
                     namespaceURI: String?, qualifiedName qName: String?,
@@ -65,7 +72,7 @@ enum YouTubeService {
             if elementName == "entry" {
                 inEntry = true
                 videoID = ""; title = ""; published = nil
-                thumbnailURL = nil; description = ""
+                thumbnailURL = nil; summaryText = ""
             }
             guard inEntry else { return }
             switch elementName {
@@ -94,13 +101,13 @@ enum YouTubeService {
             case "yt:videoId": videoID = text.trimmingCharacters(in: .whitespacesAndNewlines)
             case "published":
                 published = ISO8601DateFormatter().date(from: text.trimmingCharacters(in: .whitespacesAndNewlines))
-            case "media:description": description = text.trimmingCharacters(in: .whitespacesAndNewlines)
+            case "media:description": summaryText = text.trimmingCharacters(in: .whitespacesAndNewlines)
             case "entry":
                 if !videoID.isEmpty {
                     videos.append(YouTubeVideo(
                         id: videoID, title: title, published: published,
                         thumbnailURL: thumbnailURL,
-                        description: description.isEmpty ? nil : description
+                        summary: summaryText.isEmpty ? nil : summaryText
                     ))
                 }
                 inEntry = false
@@ -267,8 +274,8 @@ struct VideoPlayerSheet: View {
                             .foregroundStyle(Color.fwMuted)
                     }
 
-                    if let description = video.description {
-                        Text(description)
+                    if let summary = video.summary {
+                        Text(summary)
                             .font(.subheadline)
                             .foregroundStyle(Color.fwMuted)
                             .lineLimit(6)

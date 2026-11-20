@@ -9,6 +9,11 @@ import SwiftUI
 /// the feed refreshes. A quoted repost is a top-level cast into the same
 /// channel carrying the quoted cast as an embed (Quilcast's post() with
 /// quote) — there is no plain recast in this app.
+///
+/// Native feel: the editor is focused the moment the sheet appears, so
+/// the keyboard is already up and the user types straight away — no
+/// second tap into a panel. The quoted/replied-to cast is a compact
+/// preview above the editor, never a panel the editor hides behind.
 struct ComposeView: View {
     @EnvironmentObject private var identity: IdentityStore
     @Environment(\.dismiss) private var dismiss
@@ -27,6 +32,7 @@ struct ComposeView: View {
     @State private var text = ""
     @State private var isPosting = false
     @State private var error: String?
+    @FocusState private var editorFocused: Bool
 
     private let maxLength = 320
 
@@ -34,6 +40,12 @@ struct ComposeView: View {
         if parent != nil { return "Reply" }
         if quoted != nil { return "Quote repost" }
         return "New post"
+    }
+
+    private var placeholder: String {
+        if parent != nil { return "Post your reply" }
+        if quoted != nil { return "Add your take…" }
+        return "What's happening in football?"
     }
 
     var body: some View {
@@ -47,9 +59,10 @@ struct ComposeView: View {
                         Text(parent.text)
                             .font(.subheadline)
                             .foregroundStyle(.secondary)
-                            .lineLimit(3)
+                            .lineLimit(2)
                     }
-                    .padding()
+                    .padding(10)
+                    .frame(maxWidth: .infinity, alignment: .leading)
                     .background(Color.secondary.opacity(0.1), in: RoundedRectangle(cornerRadius: 12))
                 } else {
                     // Top-level posts land in /football, not the global feed.
@@ -68,17 +81,32 @@ struct ComposeView: View {
                         Text(quoted.text)
                             .font(.subheadline)
                             .foregroundStyle(.secondary)
-                            .lineLimit(4)
+                            .lineLimit(2)
                     }
-                    .padding()
+                    .padding(10)
+                    .frame(maxWidth: .infinity, alignment: .leading)
                     .background(Color.fwPanelSoft, in: RoundedRectangle(cornerRadius: 12))
                     .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.fwLine, lineWidth: 1))
                 }
 
-                TextEditor(text: $text)
-                    .font(.body)
-                    .frame(minHeight: 160)
-                    .accessibilityLabel(title)
+                ZStack(alignment: .topLeading) {
+                    if text.isEmpty {
+                        Text(placeholder)
+                            .font(.body)
+                            .foregroundStyle(.secondary)
+                            .padding(.top, 8)
+                            .padding(.leading, 5)
+                            .allowsHitTesting(false)
+                    }
+                    TextEditor(text: $text)
+                        .font(.body)
+                        .focused($editorFocused)
+                        .frame(minHeight: 140)
+                        .scrollContentBackground(.hidden)
+                        .accessibilityLabel(title)
+                }
+                .contentShape(Rectangle())
+                .onTapGesture { editorFocused = true }
 
                 HStack {
                     Text("\(text.count)/\(maxLength)")
@@ -107,6 +135,17 @@ struct ComposeView: View {
                     Button("Post") { Task { await post() } }
                         .disabled(text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                                   || text.count > maxLength || isPosting)
+                }
+                ToolbarItemGroup(placement: .keyboard) {
+                    Spacer()
+                    Button("Done") { editorFocused = false }
+                }
+            }
+            .onAppear {
+                // The sheet animation has to finish before the keyboard
+                // will take focus; a short delay is the standard way.
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+                    editorFocused = true
                 }
             }
         }

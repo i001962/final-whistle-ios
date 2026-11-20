@@ -16,7 +16,6 @@ struct ThreadView: View {
     @State private var failed: String?
     @State private var replyingTo: Cast?
     @State private var quoting: Cast?
-    @State private var childThread: Cast?
     @State private var notice: String?
 
     var body: some View {
@@ -25,13 +24,15 @@ struct ThreadView: View {
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 12) {
                         ForEach(parents) { parent in
-                            CastRow(
-                                cast: parent,
-                                onReply: { replyingTo = parent },
-                                onQuote: { quoting = parent },
-                                onThread: { childThread = parent },
-                                onReacted: { notice = $0 }
-                            )
+                            NavigationLink(value: parent) {
+                                CastRow(
+                                    cast: parent,
+                                    onReply: { replyingTo = parent },
+                                    onQuote: { quoting = parent },
+                                    onReacted: { notice = $0 }
+                                )
+                            }
+                            .buttonStyle(.plain)
                             .opacity(0.85)
                         }
 
@@ -39,7 +40,6 @@ struct ThreadView: View {
                             cast: root,
                             onReply: { replyingTo = root },
                             onQuote: { quoting = root },
-                            onThread: {},
                             onReacted: { notice = $0 }
                         )
 
@@ -69,30 +69,35 @@ struct ThreadView: View {
                         }
                         ForEach(replies) { reply in
                             VStack(alignment: .leading, spacing: 8) {
-                                CastRow(
-                                    cast: reply,
-                                    onReply: { replyingTo = reply },
-                                    onQuote: { quoting = reply },
-                                    onThread: { childThread = reply },
-                                    onReacted: { notice = $0 }
-                                )
-                                let kids = reply.directReplies ?? []
-                                if let first = kids.first {
+                                NavigationLink(value: reply) {
                                     CastRow(
-                                        cast: first,
-                                        onReply: { replyingTo = first },
-                                        onQuote: { quoting = first },
-                                        onThread: { childThread = first },
+                                        cast: reply,
+                                        onReply: { replyingTo = reply },
+                                        onQuote: { quoting = reply },
                                         onReacted: { notice = $0 }
                                     )
+                                }
+                                .buttonStyle(.plain)
+                                let kids = reply.directReplies ?? []
+                                if let first = kids.first {
+                                    NavigationLink(value: first) {
+                                        CastRow(
+                                            cast: first,
+                                            onReply: { replyingTo = first },
+                                            onQuote: { quoting = first },
+                                            onReacted: { notice = $0 }
+                                        )
+                                    }
+                                    .buttonStyle(.plain)
                                     .padding(.leading, 24)
                                 }
                                 if kids.count > 1 {
-                                    Button("\(kids.count - 1) more \(kids.count - 1 == 1 ? "reply" : "replies")") {
-                                        childThread = reply
+                                    NavigationLink(value: reply) {
+                                        Text("\(kids.count - 1) more \(kids.count - 1 == 1 ? "reply" : "replies")")
+                                            .font(.subheadline)
+                                            .foregroundStyle(Color.fwAccentSoft)
                                     }
-                                    .font(.subheadline)
-                                    .foregroundStyle(Color.fwAccentSoft)
+                                    .buttonStyle(.plain)
                                     .padding(.leading, 24)
                                 }
                             }
@@ -126,16 +131,16 @@ struct ThreadView: View {
         .task { await load() }
         .sheet(item: $replyingTo) { target in
             ComposeView(parent: target, onPosted: { Task { await load() } })
-                .presentationDetents([.medium, .large])
+                .presentationDetents([.large])
         }
         .sheet(item: $quoting) { target in
             ComposeView(quoted: target, onPosted: {
                 feed.markQuoted(target)
                 Task { await load() }
             })
-            .presentationDetents([.medium, .large])
+            .presentationDetents([.large])
         }
-        .navigationDestination(item: $childThread) { cast in
+        .navigationDestination(for: Cast.self) { cast in
             ThreadView(cast: cast)
         }
     }

@@ -17,7 +17,6 @@ struct FeedView: View {
     @State private var showingCompose = false
     @State private var replyingTo: Cast?
     @State private var quoting: Cast?
-    @State private var selectedThread: Cast?
     @State private var notice: String?
 
     // /football channel image, from the channel list at
@@ -74,20 +73,31 @@ struct FeedView: View {
                 )
                 .foregroundStyle(Color.fwMuted)
             default:
-                List(feed.casts) { cast in
-                    CastRow(
-                        cast: cast,
-                        onReply: { replyingTo = cast },
-                        onQuote: { quoting = cast },
-                        onThread: { selectedThread = cast },
-                        onReacted: { notice = $0 }
-                    )
-                    .listRowBackground(Color.clear)
-                    .listRowSeparator(.hidden)
-                    .listRowInsets(EdgeInsets(top: 5, leading: 16, bottom: 5, trailing: 16))
+                // ScrollView, not List: a NavigationLink in a List draws
+                // a disclosure chevron on every card. In a ScrollView it
+                // does not, and the link is the native iOS pattern for
+                // opening a thread. The previous onTapGesture on the row
+                // was swallowed by the List and tapping a cast did
+                // nothing, so threads were unreachable. Buttons inside
+                // the label still act as buttons; taps anywhere else
+                // follow the link.
+                ScrollView {
+                    LazyVStack(spacing: 10) {
+                        ForEach(feed.casts) { cast in
+                            NavigationLink(value: cast) {
+                                CastRow(
+                                    cast: cast,
+                                    onReply: { replyingTo = cast },
+                                    onQuote: { quoting = cast },
+                                    onReacted: { notice = $0 }
+                                )
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 5)
                 }
-                .listStyle(.plain)
-                .scrollContentBackground(.hidden)
                 .refreshable { await feed.refresh(viewerFID: identity.record?.fid) }
             }
 
@@ -123,20 +133,20 @@ struct FeedView: View {
         }
         .sheet(item: $replyingTo) { cast in
             ComposeView(parent: cast, onPosted: { Task { await feed.refresh(viewerFID: identity.record?.fid) } })
-                .presentationDetents([.medium, .large])
+                .presentationDetents([.large])
         }
         .sheet(item: $quoting) { cast in
             ComposeView(quoted: cast, onPosted: {
                 feed.markQuoted(cast)
                 Task { await feed.refresh(viewerFID: identity.record?.fid) }
             })
-            .presentationDetents([.medium, .large])
+            .presentationDetents([.large])
         }
         .task { await feed.refresh(viewerFID: identity.record?.fid) }
         .onChange(of: identity.record?.fid.value) {
             Task { await feed.refresh(viewerFID: identity.record?.fid) }
         }
-        .navigationDestination(item: $selectedThread) { cast in
+        .navigationDestination(for: Cast.self) { cast in
             ThreadView(cast: cast)
         }
     }
@@ -148,7 +158,6 @@ struct CastRow: View {
     let cast: Cast
     let onReply: () -> Void
     let onQuote: () -> Void
-    let onThread: () -> Void
     let onReacted: (String) -> Void
     @State private var working = false
 
@@ -190,7 +199,17 @@ struct CastRow: View {
                 .foregroundStyle(Color.fwText)
 
             if let quotedRef = cast.embeds?.first(where: { $0.castID != nil })?.castID {
-                QuotedCastView(ref: quotedRef, onThread: onThread)
+                QuotedCastView(ref: quotedRef)
+            }
+
+            if cast.replies.count > 0 {
+                HStack(spacing: 4) {
+                    Text("View \(cast.replies.count) \(cast.replies.count == 1 ? "reply" : "replies")")
+                    Image(systemName: "chevron.right")
+                }
+                .font(.footnote)
+                .fontWeight(.semibold)
+                .foregroundStyle(Color.fwAccentSoft)
             }
 
             HStack(spacing: 24) {
@@ -224,8 +243,6 @@ struct CastRow: View {
             RoundedRectangle(cornerRadius: 16)
                 .stroke(Color.fwLine, lineWidth: 1)
         )
-        .contentShape(Rectangle())
-        .onTapGesture { onThread() }
     }
 
     /// Optimistic toggle, Quilcast-style: the heart fills and the count
@@ -250,27 +267,29 @@ struct CastRow: View {
 /// fetched by hash. Tapping it opens that cast's thread.
 struct QuotedCastView: View {
     let ref: CastEmbed.CastIDRef
-    let onThread: () -> Void
     @State private var quoted: Cast?
     @State private var failed = false
 
     var body: some View {
         Group {
             if let quoted {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("@\(quoted.author.displayUsername)")
-                        .font(.subheadline)
-                        .fontWeight(.semibold)
-                        .foregroundStyle(Color.fwText)
-                    Text(quoted.text)
-                        .font(.subheadline)
-                        .foregroundStyle(Color.fwMuted)
-                        .lineLimit(4)
+                NavigationLink(value: quoted) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("@\(quoted.author.displayUsername)")
+                            .font(.subheadline)
+                            .fontWeight(.semibold)
+                            .foregroundStyle(Color.fwText)
+                        Text(quoted.text)
+                            .font(.subheadline)
+                            .foregroundStyle(Color.fwMuted)
+                            .lineLimit(4)
+                    }
+                    .padding(10)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(Color.fwPanelSoft, in: RoundedRectangle(cornerRadius: 12))
+                    .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.fwLine, lineWidth: 1))
                 }
-                .padding(10)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background(Color.fwPanelSoft, in: RoundedRectangle(cornerRadius: 12))
-                .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.fwLine, lineWidth: 1))
+                .buttonStyle(.plain)
             } else if failed {
                 Text("Quoted cast unavailable")
                     .font(.footnote)

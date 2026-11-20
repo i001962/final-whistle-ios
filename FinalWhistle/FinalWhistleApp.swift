@@ -16,6 +16,10 @@ struct FinalWhistleApp: App {
             ContentView()
                 .environmentObject(identity)
                 .environmentObject(feed)
+                // final-whistle.app is dark-only: near-black navy, lime
+                // highlights, magenta primary buttons (see Theme.swift).
+                .preferredColorScheme(.dark)
+                .tint(Color.fwAccent)
         }
     }
 }

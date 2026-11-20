@@ -185,10 +185,8 @@ struct TrendingFeedResponse: Codable {
     let casts: [Cast]
 }
 
-struct SearchFeedResponse: Codable {
-    struct Result: Codable { let casts: [Cast] }
-    let result: Result
-}
+/// The /football channel feed returns the same {"casts": [...]} shape.
+typealias ChannelFeedResponse = TrendingFeedResponse
 
 struct UserResponse: Codable {
     struct User: Codable {

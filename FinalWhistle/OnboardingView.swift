@@ -1,10 +1,11 @@
 import SwiftUI
 
-/// First screen when no identity is saved. Two ways in, plus browsing
-/// without an account: the feed works read-only with no identity at all.
+/// Sign-in screen, reached from Account. Two ways in: bring a FID you
+/// already have, or create a free Hypersnap native FID. The feed itself
+/// needs no identity at all, so this screen never blocks opening the app.
 struct OnboardingView: View {
     @EnvironmentObject private var identity: IdentityStore
-    @Binding var browsingWithoutAccount: Bool
+    @Environment(\.dismiss) private var dismiss
 
     @State private var fidText = ""
     @State private var seedText = ""
@@ -72,12 +73,13 @@ struct OnboardingView: View {
                     }
 
                     Button("Browse the feed without an account") {
-                        browsingWithoutAccount = true
+                        dismiss()
                     }
                     .frame(maxWidth: .infinity, minHeight: 44)
                 }
                 .padding()
             }
+            .background(Color.fwBackground)
             .navigationTitle("Welcome")
             .navigationBarTitleDisplayMode(.inline)
         }
@@ -93,6 +95,7 @@ struct OnboardingView: View {
         }
         do {
             try await identity.bringYourFID(fid: fid, signerSeedHex: seedText.trimmingCharacters(in: .whitespaces))
+            if identity.isSignedIn { dismiss() }
         } catch {
             self.error = error.localizedDescription
         }
@@ -102,6 +105,7 @@ struct OnboardingView: View {
         error = nil
         do {
             try await identity.createNewFID()
+            if identity.isSignedIn { dismiss() }
         } catch {
             self.error = error.localizedDescription
         }

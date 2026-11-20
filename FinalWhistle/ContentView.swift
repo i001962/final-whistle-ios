@@ -1,37 +1,40 @@
 import SwiftUI
 
+/// The app opens straight onto the /football channel feed. No identity
+/// is needed to read it. Signing in (bring a FID, or create a free
+/// Hypersnap native FID) lives behind the Account button, and is only
+/// needed to post, reply, like, or recast.
 struct ContentView: View {
     @EnvironmentObject private var identity: IdentityStore
     @EnvironmentObject private var feed: FeedStore
-    @State private var browsingWithoutAccount = false
     @State private var showingProfile = false
 
     var body: some View {
-        Group {
-            if identity.isSignedIn || browsingWithoutAccount {
-                NavigationStack {
-                    FeedView()
-                        .toolbar {
-                            ToolbarItem(placement: .navigationBarLeading) {
-                                Text("Final Whistle")
-                                    .font(.headline)
-                            }
-                            ToolbarItem(placement: .navigationBarTrailing) {
-                                Button {
-                                    showingProfile = true
-                                } label: {
-                                    Label("Account", systemImage: identity.isSignedIn ? "person.crop.circle.fill" : "person.crop.circle")
-                                }
-                                .accessibilityLabel(identity.isSignedIn ? "Account" : "Sign in")
-                            }
+        NavigationStack {
+            FeedView()
+                .toolbar {
+                    ToolbarItem(placement: .navigationBarLeading) {
+                        Text("Final ")
+                            .font(.headline)
+                            .fontWeight(.black)
+                            .foregroundStyle(Color.fwText)
+                        + Text("Whistle")
+                            .font(.headline)
+                            .fontWeight(.black)
+                            .foregroundStyle(Color.fwLime)
+                    }
+                    ToolbarItem(placement: .navigationBarTrailing) {
+                        Button {
+                            showingProfile = true
+                        } label: {
+                            Label("Account", systemImage: identity.isSignedIn ? "person.crop.circle.fill" : "person.crop.circle")
                         }
-                        .sheet(isPresented: $showingProfile) {
-                            ProfileView()
-                        }
+                        .accessibilityLabel(identity.isSignedIn ? "Account" : "Sign in")
+                    }
                 }
-            } else {
-                OnboardingView(browsingWithoutAccount: $browsingWithoutAccount)
-            }
+                .sheet(isPresented: $showingProfile) {
+                    ProfileView()
+                }
         }
     }
 }
@@ -40,6 +43,7 @@ struct ProfileView: View {
     @EnvironmentObject private var identity: IdentityStore
     @Environment(\.dismiss) private var dismiss
     @State private var confirmingSignOut = false
+    @State private var showingOnboarding = false
 
     var body: some View {
         NavigationStack {
@@ -72,12 +76,14 @@ struct ProfileView: View {
                     Section {
                         Text("You are browsing without an account. The feed works, but posting, replies, likes, and recasts need a Hypersnap FID.")
                         Button("Sign in or create a FID") {
-                            dismiss()
+                            showingOnboarding = true
                         }
                         .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
                     }
                 }
             }
+            .scrollContentBackground(.hidden)
+            .background(Color.fwBackground)
             .navigationTitle("Account")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -91,6 +97,9 @@ struct ProfileView: View {
                     dismiss()
                 }
                 Button("Cancel", role: .cancel) {}
+            }
+            .sheet(isPresented: $showingOnboarding) {
+                OnboardingView()
             }
         }
     }

@@ -3,19 +3,19 @@ import os
 
 /// Public Hypersnap reads. No auth, no API key, HTTPS only.
 /// Base: https://hypersnap.castrater.xyz
-/// Verified live 19 Nov 2026:
-///   GET /v2/farcaster/feed/trending?limit=20  -> {"casts": [...]}
-///   GET /v2/farcaster/cast/search?q=football&limit=20 -> {"result": {"casts": [...]}}
+/// Verified live 20 Nov 2026:
+///   GET /v2/farcaster/feed/channels?channel_ids=football&limit=20
+///     -> {"casts": [...]} — every cast's parent_url is
+///     https://farcaster.xyz/~/channel/football. This is the real
+///     /football channel feed, not a keyword search.
 ///   GET /v2/farcaster/user?fid=<fid> -> {"user": {...}}
 ///   GET /v2/farcaster/user/by-username?username=<name> -> {"user": {"fid": ...}}
 /// Do NOT use the for-you feed (it returns trending) or the cast summary
 /// endpoint (it returns a placeholder string, the node has no LLM).
-enum FeedTab: String, CaseIterable, Identifiable {
-    case trending = "Trending"
-    case football = "Football"
-
-    var id: String { rawValue }
-}
+/// Note: the /football channel is quiet. At the 20 Nov 2026 check the
+/// newest cast in it was 7 Nov 2026, so a sparse feed is the channel
+/// itself, not a loading bug. The old keyword search (q=football) was
+/// fresher but pulled in casts from everywhere; it is gone by design.
 
 struct FeedService {
     static let baseURL = URL(string: "https://hypersnap.castrater.xyz")!
@@ -62,16 +62,11 @@ struct FeedService {
         return try decoder().decode(T.self, from: data)
     }
 
-    static func trending(limit: Int = 20) async throws -> [Cast] {
-        let response: TrendingFeedResponse = try await get("/v2/farcaster/feed/trending?limit=\(limit)")
-        return dedup(response.casts)
-    }
-
-    /// Football tab: keyword search. Note it is a search, not a live channel
-    /// feed, so older casts that mention football can appear. Sorted newest first.
+    /// The whole feed is the /football channel. No trending tab, no
+    /// keyword search: only casts posted into the channel.
     static func football(limit: Int = 20) async throws -> [Cast] {
-        let response: SearchFeedResponse = try await get("/v2/farcaster/cast/search?q=football&limit=\(limit)")
-        return dedup(response.result.casts).sorted { $0.timestamp > $1.timestamp }
+        let response: ChannelFeedResponse = try await get("/v2/farcaster/feed/channels?channel_ids=football&limit=\(limit)")
+        return dedup(response.casts).sorted { $0.timestamp > $1.timestamp }
     }
 
     static func user(fid: FID) async throws -> UserResponse.User {
@@ -122,7 +117,6 @@ struct FeedService {
 final class FeedStore: ObservableObject {
     @Published private(set) var casts: [Cast] = []
     @Published private(set) var state: LoadState = .loading
-    @Published var tab: FeedTab = .trending
 
     enum LoadState: Equatable {
         case loading
@@ -144,11 +138,7 @@ final class FeedStore: ObservableObject {
     func refresh() async {
         state = .loading
         do {
-            let fresh: [Cast]
-            switch tab {
-            case .trending: fresh = try await FeedService.trending()
-            case .football: fresh = try await FeedService.football()
-            }
+            let fresh = try await FeedService.football()
             casts = fresh
             state = fresh.isEmpty ? .empty : .loaded
             try? cache.save(fresh)

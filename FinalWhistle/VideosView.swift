@@ -303,6 +303,16 @@ struct VideoPlayerSheet: View {
                         .buttonStyle(.bordered)
                         .tint(Color.fwMuted)
                     }
+
+                    // Escape hatch: if an embed ever refuses a video
+                    // (embedding disabled on that video, a future
+                    // YouTube change), the fan can still watch it.
+                    Link(destination: video.watchURL) {
+                        Label("Watch on YouTube", systemImage: "play.rectangle")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.bordered)
+                    .tint(Color.fwMuted)
                 }
                 .padding()
             }
@@ -319,8 +329,26 @@ struct VideoPlayerSheet: View {
 
 /// WKWebView wrapper for the YouTube iframe embed. Inline playback,
 /// autoplay on open, picture-in-picture and fullscreen all on.
+///
+/// ERROR 153 LESSON (2026-11-20): YouTube's embedded player refuses
+/// to play — "Video player configuration error", Error 153 — when it
+/// cannot tell who embedded it: no Referer header and no origin. The
+/// first version loaded the HTML with `baseURL: nil`, so the page had
+/// a null origin and sent nothing, and every video failed the same
+/// way. The fix is origin consistency: the wrapper page loads at a
+/// real origin (the app's own domain, final-whistle.app) via baseURL,
+/// and the embed URL declares that same origin with `origin=` (plus
+/// `enablejsapi=1` and a strict-origin referrer policy). The declared
+/// origin must match the document's real origin — claiming
+/// `origin=https://www.youtube.com` is the opposite failure, Error
+/// 152. YouTube has enforced this since August 2025.
 private struct YouTubePlayerView: UIViewRepresentable {
     let video: YouTubeVideo
+
+    /// The origin the player identifies itself with: the app's own
+    /// domain. Used both as the wrapper page's baseURL and as the
+    /// embed's `origin=` parameter — they must match.
+    private static let origin = "https://final-whistle.app"
 
     func makeUIView(context: Context) -> WKWebView {
         let config = WKWebViewConfiguration()
@@ -342,11 +370,12 @@ private struct YouTubePlayerView: UIViewRepresentable {
         <style>html,body{margin:0;padding:0;background:#000;height:100%;overflow:hidden}
         iframe{position:absolute;top:0;left:0;width:100%;height:100%;border:0}</style>
         </head><body>
-        <iframe src="https://www.youtube.com/embed/\(video.id)?playsinline=1&rel=0&autoplay=1"
+        <iframe src="https://www.youtube.com/embed/\(video.id)?playsinline=1&rel=0&autoplay=1&enablejsapi=1&origin=\(Self.origin)"
+        referrerpolicy="strict-origin-when-cross-origin"
         allow="accelerometer; autoplay; encrypted-media; gyroscope; picture-in-picture; fullscreen"
         allowfullscreen></iframe>
         </body></html>
         """
-        webView.loadHTMLString(html, baseURL: nil)
+        webView.loadHTMLString(html, baseURL: URL(string: Self.origin))
     }
 }

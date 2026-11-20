@@ -65,10 +65,13 @@ struct RoomsView: View {
 // MARK: - One room: IRC-style chat
 
 /// A room as a group chat: messages oldest-first, a composer at the
-/// bottom, tap a message to reply in its thread, heart to like.
-/// A top-level message posts with the room as parent_url; a reply
-/// posts with parent_cast_id, so it lives in the message's thread
-/// (opened from the "N replies" link) rather than in the room list.
+/// bottom, heart to like. Replies are NOT hidden in a thread — every
+/// reply shows inline in the feed, iMessage-style, with a small quote
+/// of the message it answers above it. A top-level message posts with
+/// the room as parent_url; a reply posts with parent_cast_id (a real
+/// Farcaster reply, so other clients still see the thread), and the
+/// room loads each top-level cast's conversation and flattens the
+/// whole tree into the one chronological list.
 struct RoomView: View {
     let room: ChatRoom
 
@@ -113,6 +116,7 @@ struct RoomView: View {
                             ForEach(messages) { cast in
                                 RoomMessageRow(
                                     cast: cast,
+                                    parent: parentOf(cast),
                                     liked: isLiked(cast),
                                     likesCount: likesCount(for: cast),
                                     onLike: { Task { await toggleLike(cast) } },
@@ -137,9 +141,6 @@ struct RoomView: View {
             composer
         }
         .background(Color.fwBackground)
-        .navigationDestination(for: Cast.self) { cast in
-            ThreadView(cast: cast)
-        }
         .task {
             await load()
             // Live room: poll for other fans' messages while open.
@@ -164,14 +165,50 @@ struct RoomView: View {
         loading = true
         failed = nil
         do {
-            // Newest-first from the node, flipped to chat order.
-            let casts = try await FeedService.parentURL(room.parentURL, viewerFID: identity.record?.fid)
-            messages = casts.reversed()
-            likedHashes = Set(casts.filter { $0.viewerContext?.liked == true }.map { $0.hash.lowercased() })
+            // Newest-first from the node, then each top-level cast's
+            // conversation fetched in parallel and flattened in, so
+            // replies show inline instead of hiding in threads. Capped
+            // at 25 top-level casts to bound the fan-out.
+            let top = try await FeedService.parentURL(room.parentURL, limit: 25, viewerFID: identity.record?.fid)
+            var all = top
+            await withTaskGroup(of: [Cast].self) { group in
+                for cast in top {
+                    group.addTask {
+                        guard let thread = try? await FeedService.conversation(hash: cast.hash, viewerFID: identity.record?.fid) else {
+                            return []
+                        }
+                        return Self.flatten(thread.directReplies ?? [])
+                    }
+                }
+                for await replies in group {
+                    all += replies
+                }
+            }
+            let deduped = FeedService.dedup(all)
+            messages = deduped.sorted { $0.timestamp < $1.timestamp }
+            likedHashes = Set(deduped.filter { $0.viewerContext?.liked == true }.map { $0.hash.lowercased() })
         } catch {
             failed = error.localizedDescription
         }
         loading = false
+    }
+
+    /// Walk a conversation's nested direct_replies into one flat list.
+    private static func flatten(_ replies: [Cast]) -> [Cast] {
+        var out: [Cast] = []
+        for reply in replies {
+            out.append(reply)
+            out += flatten(reply.directReplies ?? [])
+        }
+        return out
+    }
+
+    /// The message this one answers, for its inline quote. Found by
+    /// parent hash; a top-level message has no parent.
+    private func parentOf(_ cast: Cast) -> Cast? {
+        guard let parentHash = cast.parentHash else { return nil }
+        let key = parentHash.replacingOccurrences(of: "0x", with: "").lowercased()
+        return messages.first { $0.hash.lowercased() == key }
     }
 
     private func isLiked(_ cast: Cast) -> Bool { likedHashes.contains(cast.hash.lowercased()) }
@@ -264,21 +301,19 @@ struct RoomView: View {
         sending = true
         sendError = nil
         do {
+            // Both branches wait for the new hash to appear in the
+            // flattened list: a top-level post via parent_urls, a reply
+            // via its parent's conversation.
+            let hash: String
             if let replyingTo {
-                _ = try await identity.reply(to: replyingTo, text: text)
-                draft = ""
+                hash = try await identity.reply(to: replyingTo, text: text)
                 self.replyingTo = nil
-                composerFocused = false
-                // A reply lives in the message's thread, not the room
-                // list — one delayed reload refreshes its reply count.
-                try? await Task.sleep(nanoseconds: 2_000_000_000)
-                await load()
             } else {
-                let hash = try await identity.post(text: text, parentURL: room.parentURL)
-                draft = ""
-                composerFocused = false
-                await reloadUntilVisible(hash: hash)
+                hash = try await identity.post(text: text, parentURL: room.parentURL)
             }
+            draft = ""
+            composerFocused = false
+            await reloadUntilVisible(hash: hash)
         } catch {
             sendError = error.localizedDescription
         }
@@ -303,9 +338,13 @@ struct RoomView: View {
 }
 
 /// One message in the room: pfp, name, time, text with mentions put
-/// back, then like and reply. Replies live in the message's thread.
+/// back, then like and reply. A reply carries a small quote of the
+/// message it answers above its own text, iMessage-style — nothing
+/// hides behind a "replies" link.
 private struct RoomMessageRow: View {
     let cast: Cast
+    /// The message this one answers, if it is a reply.
+    let parent: Cast?
     let liked: Bool
     let likesCount: Int
     let onLike: () -> Void
@@ -340,6 +379,26 @@ private struct RoomMessageRow: View {
                         .foregroundStyle(Color.fwMuted)
                 }
 
+                if let parent {
+                    HStack(spacing: 6) {
+                        Rectangle()
+                            .fill(Color.fwAccent)
+                            .frame(width: 2)
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text("@\(parent.author.username ?? "fid:\(parent.author.fid.value)")")
+                                .font(.caption)
+                                .fontWeight(.semibold)
+                                .foregroundStyle(Color.fwAccentSoft)
+                            Text(parent.text)
+                                .font(.caption)
+                                .foregroundStyle(Color.fwMuted)
+                                .lineLimit(2)
+                        }
+                    }
+                    .padding(8)
+                    .background(Color.fwPanelSoft, in: RoundedRectangle(cornerRadius: 8))
+                }
+
                 CastTextView(cast: cast)
                     .font(.subheadline)
                     .foregroundStyle(Color.fwText)
@@ -364,15 +423,6 @@ private struct RoomMessageRow: View {
                         .foregroundStyle(Color.fwMuted)
                     }
                     .accessibilityLabel("Reply to this message")
-
-                    if cast.replies.count > 0 {
-                        NavigationLink(value: cast) {
-                            Text("\(cast.replies.count) \(cast.replies.count == 1 ? "reply" : "replies") ›")
-                                .font(.caption)
-                                .fontWeight(.semibold)
-                                .foregroundStyle(Color.fwAccentSoft)
-                        }
-                    }
                 }
                 .padding(.top, 2)
             }

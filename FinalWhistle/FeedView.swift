@@ -216,13 +216,9 @@ struct CastRow: View {
                 }
             }
 
-            Text(cast.text)
-                .font(.body)
-                .foregroundStyle(Color.fwText)
+            CastTextView(cast: cast)
 
-            if let quotedRef = cast.embeds?.first(where: { $0.castID != nil })?.castID {
-                QuotedCastView(ref: quotedRef, onOpen: onOpenQuote)
-            }
+            CastEmbedsView(cast: cast, onOpenQuote: onOpenQuote)
 
             if !inThread, cast.replies.count > 0 {
                 HStack(spacing: 4) {
@@ -281,65 +277,6 @@ struct CastRow: View {
         } catch {
             feed.setLiked(cast, liked: !shouldLike)
             onReacted("Like failed: \(error.localizedDescription)")
-        }
-    }
-}
-
-/// A quoted cast embedded in a cast: the quoted author's name and text,
-/// fetched by hash. Tapping it opens that cast's thread via onOpen.
-///
-/// This must NOT be a NavigationLink: it lives inside the card, and the
-/// card itself is already a NavigationLink to its own thread. A nested
-/// link is the reason quote reposts rendered with no quoted cast at
-/// all — the inner link swallowed the preview — so a quote looked like
-/// a standalone post with no reference to what it quoted.
-struct QuotedCastView: View {
-    let ref: CastEmbed.CastIDRef
-    let onOpen: ((Cast) -> Void)?
-    @State private var quoted: Cast?
-    @State private var failed = false
-    @State private var retryCount = 0
-
-    var body: some View {
-        Group {
-            if let quoted {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("@\(quoted.author.displayUsername)")
-                        .font(.subheadline)
-                        .fontWeight(.semibold)
-                        .foregroundStyle(Color.fwText)
-                    Text(quoted.text)
-                        .font(.subheadline)
-                        .foregroundStyle(Color.fwMuted)
-                        .lineLimit(4)
-                }
-                .padding(10)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background(Color.fwPanelSoft, in: RoundedRectangle(cornerRadius: 12))
-                .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.fwLine, lineWidth: 1))
-                .contentShape(Rectangle())
-                .onTapGesture {
-                    if let onOpen { onOpen(quoted) }
-                }
-            } else if failed {
-                Button("Quoted cast did not load — tap to retry") {
-                    failed = false
-                    retryCount += 1
-                }
-                .font(.footnote)
-                .foregroundStyle(Color.fwAccentSoft)
-            } else {
-                ProgressView()
-                    .tint(Color.fwMuted)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            }
-        }
-        .task(id: retryCount) {
-            do {
-                quoted = try await FeedService.userCast(hash: ref.hash)
-            } catch {
-                failed = true
-            }
         }
     }
 }

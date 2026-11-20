@@ -160,6 +160,89 @@ final class FinalWhistleTests: XCTestCase {
         )
     }
 
+    func testMentionSplicedBackIntoText() throws {
+        // The live 048b548f vector (see testFeedDecodesQuoteEmbedAndMentions):
+        // the stored text strips @ccarella and the range (30, 30) says
+        // where it goes back (Quilcast shared.ts castText).
+        let json = """
+        {"casts": [{"hash": "048b548f", "text": "Scout brings back memories of ’s project back in the day scouting devs",
+        "timestamp": "2026-11-20T19:59:05.000Z",
+        "author": {"fid": 4294967327, "username": "fid:4294967327"},
+        "reactions": {"likes_count": 0, "recasts_count": 0}, "replies": {"count": 0},
+        "embeds": [{"cast_id": {"fid": 318845, "hash": "f6deaf70d838885e51857c91a020287ce11f2647"}}],
+        "mentioned_profiles": [{"fid": 472, "username": "ccarella"}],
+        "mentioned_profiles_ranges": [{"start": 30, "end": 30}]}]}
+        """.data(using: .utf8)!
+        let cast = try FeedService.makeDecoder().decode(TrendingFeedResponse.self, from: json).casts[0]
+        XCTAssertTrue(cast.textSegments.contains(.mention(fid: FID(472), username: "ccarella")))
+        XCTAssertEqual(
+            String(cast.attributedText().characters),
+            "Scout brings back memories of @ccarella’s project back in the day scouting devs"
+        )
+    }
+
+    func testMentionOffsetIsBytesNotCharacters() throws {
+        // ⚽ is 3 UTF-8 bytes but 1 character: a character offset would
+        // splice the mention a byte too early ("Hi ⚽  @aliceteam").
+        let json = """
+        {"casts": [{"hash": "zz", "text": "Hi ⚽  team",
+        "timestamp": "2026-11-20T19:59:05.000Z",
+        "author": {"fid": 1, "username": "a"},
+        "reactions": {"likes_count": 0, "recasts_count": 0}, "replies": {"count": 0},
+        "mentioned_profiles": [{"fid": 99, "username": "alice"}],
+        "mentioned_profiles_ranges": [{"start": 7, "end": 7}]}]}
+        """.data(using: .utf8)!
+        let cast = try FeedService.makeDecoder().decode(TrendingFeedResponse.self, from: json).casts[0]
+        XCTAssertEqual(String(cast.attributedText().characters), "Hi ⚽ @alice team")
+    }
+
+    func testBareLinkInTextIsALinkSegment() throws {
+        let json = """
+        {"casts": [{"hash": "yy", "text": "watch https://youtu.be/A4Uf8GOg-Kk now",
+        "timestamp": "2026-11-20T19:59:05.000Z",
+        "author": {"fid": 1, "username": "a"},
+        "reactions": {"likes_count": 0, "recasts_count": 0}, "replies": {"count": 0}}]}
+        """.data(using: .utf8)!
+        let cast = try FeedService.makeDecoder().decode(TrendingFeedResponse.self, from: json).casts[0]
+        XCTAssertTrue(cast.textSegments.contains(
+            .link(url: URL(string: "https://youtu.be/A4Uf8GOg-Kk")!, display: "youtu.be/A4Uf8GOg-Kk")
+        ))
+    }
+
+    // MARK: - Embeds
+
+    func testEmbedClassification() {
+        XCTAssertTrue(CastMedia.isImageURL(URL(string: "https://imagedelivery.net/abc/def/original")!))
+        XCTAssertTrue(CastMedia.isImageURL(URL(string: "https://example.com/pic.png")!))
+        XCTAssertFalse(CastMedia.isImageURL(URL(string: "https://youtu.be/A4Uf8GOg-Kk")!))
+        XCTAssertTrue(CastMedia.isVideoURL(URL(string: "https://example.com/v.mp4")!))
+        XCTAssertFalse(CastMedia.isVideoURL(URL(string: "https://example.com/pic.png")!))
+        // Farcaster's image CDN resizes on request (Quilcast sized).
+        XCTAssertEqual(
+            CastMedia.sizedImageURL(URL(string: "https://imagedelivery.net/abc/def/original")!).absoluteString,
+            "https://imagedelivery.net/abc/def/w=1200"
+        )
+        XCTAssertEqual(
+            CastMedia.sizedImageURL(URL(string: "https://example.com/pic.png")!).absoluteString,
+            "https://example.com/pic.png"
+        )
+    }
+
+    func testEmbedURLsSkipLinksAlreadyInText() throws {
+        // A YouTube link pasted in the text AND embedded shows once (as a
+        // tappable link in the text), not twice (link + card) — Quilcast urlsOf.
+        let json = """
+        {"casts": [{"hash": "xx", "text": "watch https://youtu.be/A4Uf8GOg-Kk",
+        "timestamp": "2026-11-20T19:59:05.000Z",
+        "author": {"fid": 1, "username": "a"},
+        "reactions": {"likes_count": 0, "recasts_count": 0}, "replies": {"count": 0},
+        "embeds": [{"url": "https://youtu.be/A4Uf8GOg-Kk"}, {"url": "https://imagedelivery.net/abc/def/original"}]}]}
+        """.data(using: .utf8)!
+        let cast = try FeedService.makeDecoder().decode(TrendingFeedResponse.self, from: json).casts[0]
+        XCTAssertEqual(cast.linkEmbedURLs, [])
+        XCTAssertEqual(cast.imageEmbedURLs.map(\.absoluteString), ["https://imagedelivery.net/abc/def/original"])
+    }
+
     // MARK: - PoW
 
     func testPowHashAndTarget() {

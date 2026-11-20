@@ -168,6 +168,23 @@ struct CastEmbed: Codable, Hashable {
     }
 }
 
+/// A mention's UTF-8 byte range in the cast's raw text
+/// (mentioned_profiles_ranges). Hypersnap uses zero-width ranges
+/// (start == end): the @name is NOT in the text, it is inserted at
+/// that offset. A non-zero range means the name is already in the text
+/// and the range covers it.
+struct MentionRange: Codable, Hashable {
+    let start: Int
+    let end: Int
+}
+
+/// A mentioned channel (mentioned_channels): the channel's id
+/// ("football") and display name, if the node sent one.
+struct MentionedChannel: Codable, Hashable {
+    let id: String?
+    let name: String?
+}
+
 /// One cast from the public read API. The hash is hex without a 0x prefix.
 /// direct_replies is only filled by the conversation endpoint; embeds
 /// carry quoted casts; viewer_context only when asked with viewer_fid.
@@ -184,6 +201,15 @@ struct Cast: Codable, Hashable, Identifiable {
     var viewerContext: ViewerContext?
     var directReplies: [Cast]?
     let embeds: [CastEmbed]?
+    /// Who the cast mentions, and where (Quilcast shared.ts castText):
+    /// mentioned_profiles are full user objects (username, fid, pfp),
+    /// mentioned_profiles_ranges their UTF-8 byte offsets in `text`.
+    /// Same for channels. Decoded leniently — a shape change in the
+    /// node's response must never break the whole feed.
+    let mentionedProfiles: [CastAuthor]
+    let mentionedProfilesRanges: [MentionRange]
+    let mentionedChannels: [MentionedChannel]
+    let mentionedChannelsRanges: [MentionRange]
 
     var id: String { hash }
 
@@ -194,6 +220,10 @@ struct Cast: Codable, Hashable, Identifiable {
         case threadHash = "thread_hash"
         case viewerContext = "viewer_context"
         case directReplies = "direct_replies"
+        case mentionedProfiles = "mentioned_profiles"
+        case mentionedProfilesRanges = "mentioned_profiles_ranges"
+        case mentionedChannels = "mentioned_channels"
+        case mentionedChannelsRanges = "mentioned_channels_ranges"
     }
 
     struct ParentAuthor: Codable {
@@ -214,6 +244,10 @@ struct Cast: Codable, Hashable, Identifiable {
         viewerContext = try container.decodeIfPresent(ViewerContext.self, forKey: .viewerContext)
         directReplies = try container.decodeIfPresent([Cast].self, forKey: .directReplies)
         embeds = try container.decodeIfPresent([CastEmbed].self, forKey: .embeds)
+        mentionedProfiles = (try? container.decode([CastAuthor].self, forKey: .mentionedProfiles)) ?? []
+        mentionedProfilesRanges = (try? container.decode([MentionRange].self, forKey: .mentionedProfilesRanges)) ?? []
+        mentionedChannels = (try? container.decode([MentionedChannel].self, forKey: .mentionedChannels)) ?? []
+        mentionedChannelsRanges = (try? container.decode([MentionRange].self, forKey: .mentionedChannelsRanges)) ?? []
     }
 
     func encode(to encoder: Encoder) throws {
@@ -229,6 +263,10 @@ struct Cast: Codable, Hashable, Identifiable {
         try container.encodeIfPresent(viewerContext, forKey: .viewerContext)
         try container.encodeIfPresent(directReplies, forKey: .directReplies)
         try container.encodeIfPresent(embeds, forKey: .embeds)
+        try container.encode(mentionedProfiles, forKey: .mentionedProfiles)
+        try container.encode(mentionedProfilesRanges, forKey: .mentionedProfilesRanges)
+        try container.encode(mentionedChannels, forKey: .mentionedChannels)
+        try container.encode(mentionedChannelsRanges, forKey: .mentionedChannelsRanges)
     }
 }
 
@@ -255,12 +293,35 @@ struct UserResponse: Codable {
         let displayName: String?
         let pfpURL: URL?
         let custodyAddress: String?
+        let bio: String?
+        let followerCount: Int?
+        let followingCount: Int?
 
         enum CodingKeys: String, CodingKey {
             case fid, username
             case displayName = "display_name"
             case pfpURL = "pfp_url"
             case custodyAddress = "custody_address"
+            case profile
+            case followerCount = "follower_count"
+            case followingCount = "following_count"
+        }
+
+        struct Profile: Codable {
+            struct Bio: Codable { let text: String? }
+            let bio: Bio?
+        }
+
+        init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            fid = try container.decode(FID.self, forKey: .fid)
+            username = try container.decodeIfPresent(String.self, forKey: .username)
+            displayName = try container.decodeIfPresent(String.self, forKey: .displayName)
+            pfpURL = try container.decodeIfPresent(URL.self, forKey: .pfpURL)
+            custodyAddress = try container.decodeIfPresent(String.self, forKey: .custodyAddress)
+            bio = try container.decodeIfPresent(Profile.self, forKey: .profile)?.bio?.text
+            followerCount = try container.decodeIfPresent(Int.self, forKey: .followerCount)
+            followingCount = try container.decodeIfPresent(Int.self, forKey: .followingCount)
         }
     }
     let user: User

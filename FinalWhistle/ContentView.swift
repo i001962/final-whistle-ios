@@ -1,5 +1,19 @@
 import SwiftUI
 
+/// Programmatic navigation for taps that can't use a NavigationLink:
+/// an @mention inside a cast's text is an AttributedString link, not a
+/// button, so it navigates by appending to this path. The link is the
+/// in-app `fw://mention/<fid>` URL, intercepted by the openURL
+/// environment on the stack below.
+@MainActor
+final class Router: ObservableObject {
+    @Published var path = NavigationPath()
+
+    func openProfile(_ fid: FID) {
+        path.append(fid)
+    }
+}
+
 /// The app opens straight onto the /football channel feed. No identity
 /// is needed to read it. Signing in (bring a FID, or create a free
 /// Hypersnap native FID) lives behind the Account button, and is only
@@ -7,10 +21,11 @@ import SwiftUI
 struct ContentView: View {
     @EnvironmentObject private var identity: IdentityStore
     @EnvironmentObject private var feed: FeedStore
+    @EnvironmentObject private var router: Router
     @State private var showingProfile = false
 
     var body: some View {
-        NavigationStack {
+        NavigationStack(path: $router.path) {
             FeedView()
                 .toolbar {
                     // Your profile picture is the account button, top
@@ -41,7 +56,21 @@ struct ContentView: View {
                 .sheet(isPresented: $showingProfile) {
                     ProfileView()
                 }
+                .navigationDestination(for: FID.self) { fid in
+                    UserProfileView(fid: fid)
+                }
         }
+        // Mention links (fw://mention/<fid>) push that user's profile;
+        // every other link (bare URLs in cast text, video tiles, link
+        // cards) opens as usual.
+        .environment(\.openURL, OpenURLAction { url in
+            if url.scheme == "fw", url.host == "mention",
+               let raw = url.pathComponents.last, let value = UInt64(raw) {
+                Task { @MainActor in router.openProfile(FID(value)) }
+                return .handled
+            }
+            return .systemAction
+        })
     }
 }
 

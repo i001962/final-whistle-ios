@@ -81,8 +81,12 @@ xcrun simctl boot "$DEVICE" 2>/dev/null || true
 # 2026-11-20 after the Xcode 27.2 runtime download), and under set -e
 # that killed the whole script before the build. The GUI open is only
 # for showing the window — the boot/install/launch below work without
-# it — so never let it abort the run.
-SIM_APP="$(xcode-select -p)/../Applications/Simulator.app"
+# it — so never let it abort the run. NOTE: xcode-select -p already
+# ends in Contents/Developer, so the app is at
+# $DEVELOPER_DIR/Applications/Simulator.app — the 3b7d237 version used
+# ../Applications (Contents/Applications, does not exist) and fell
+# straight back to the broken `open -a`.
+SIM_APP="$(xcode-select -p)/Applications/Simulator.app"
 if [[ -d "$SIM_APP" ]]; then
     open "$SIM_APP" || echo "Warning: could not open $SIM_APP; open it manually from Xcode if you want the window." >&2
 else

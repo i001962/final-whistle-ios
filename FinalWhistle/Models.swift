@@ -98,6 +98,11 @@ struct CastReactions: Codable, Hashable {
     var likesCount: Int = 0
     var recastsCount: Int = 0
 
+    init(likesCount: Int = 0, recastsCount: Int = 0) {
+        self.likesCount = likesCount
+        self.recastsCount = recastsCount
+    }
+
     enum CodingKeys: String, CodingKey {
         case likesCount = "likes_count"
         case recastsCount = "recasts_count"
@@ -112,6 +117,10 @@ struct CastReactions: Codable, Hashable {
 
 struct CastReplies: Codable, Hashable {
     var count: Int = 0
+
+    init(count: Int = 0) {
+        self.count = count
+    }
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)

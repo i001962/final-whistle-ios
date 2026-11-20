@@ -113,6 +113,34 @@ final class FinalWhistleTests: XCTestCase {
         XCTAssertEqual(cast.embeds?.first?.castID?.hash, "f6deaf70d838885e51857c91a020287ce11f2647")
     }
 
+    func testYouTubeRSSParsesEntries() {
+        // The exact shape of the @split-peel channel feed:
+        // https://www.youtube.com/feeds/videos.xml?channel_id=UCQn56wvJDa4ukd5n8XF5z_A
+        let xml = """
+        <?xml version="1.0" encoding="UTF-8"?>
+        <feed xmlns="http://www.w3.org/2005/Atom" xmlns:media="http://search.yahoo.com/mrss/" xmlns:yt="http://www.youtube.com/xml/schemas/2015">
+        <title>Final Whistle with Split &amp; Peel</title>
+        <entry><yt:videoId>MlTgU-gZY8I</yt:videoId><title>Arsenal's FPL Leak</title>
+        <published>2026-11-20T15:04:49+00:00</published>
+        <media:group><media:thumbnail url="https://i2.ytimg.com/vi/MlTgU-gZY8I/hqdefault.jpg"/>
+        <media:description>Episode one.</media:description></media:group></entry>
+        <entry><yt:videoId>A4Uf8GOg-Kk</yt:videoId><title>Pochettino Has Three Days</title>
+        <published>2026-11-19T15:02:00+00:00</published>
+        <media:group><media:thumbnail url="https://i2.ytimg.com/vi/A4Uf8GOg-Kk/hqdefault.jpg"/>
+        <media:description>Episode two.</media:description></media:group></entry>
+        </feed>
+        """.data(using: .utf8)!
+        let videos = YouTubeService.parse(data: xml)
+        XCTAssertEqual(videos.count, 2)
+        XCTAssertEqual(videos[0].id, "MlTgU-gZY8I")
+        XCTAssertEqual(videos[0].title, "Arsenal's FPL Leak")
+        XCTAssertEqual(videos[0].thumbnailURL?.absoluteString, "https://i2.ytimg.com/vi/MlTgU-gZY8I/hqdefault.jpg")
+        XCTAssertEqual(videos[0].description, "Episode one.")
+        XCTAssertEqual(videos[0].watchURL.absoluteString, "https://www.youtube.com/watch?v=MlTgU-gZY8I")
+        XCTAssertNotNil(videos[0].published)
+        XCTAssertEqual(videos[1].id, "A4Uf8GOg-Kk")
+    }
+
     func testReactionBodyBytes() {
         let data = FarcasterMessages.reactionData(
             fid: 4294967310, timestamp: 123456, reactionType: 1,

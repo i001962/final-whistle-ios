@@ -20,39 +20,12 @@ struct FeedView: View {
     @State private var selectedQuoted: Cast?
     @State private var notice: String?
 
-    // /football channel image, from the channel list at
-    // hypersnap-stats.qstorage.quilibrium.com/all-channels-formatted.json
-    // (id "football", 25,587 followers, 1,143 members, public casting).
-    private static let channelImageURL = URL(string: "https://imagedelivery.net/BXluQx4ige9GuW0Ia56BHw/e457005e-e084-4e2e-288b-d94160184700/original")!
-
     var body: some View {
         VStack(spacing: 0) {
-            HStack(spacing: 12) {
-                AsyncImage(url: Self.channelImageURL) { image in
-                    image.resizable().scaledToFill()
-                } placeholder: {
-                    Color.fwPanelSoft
-                }
-                .frame(width: 44, height: 44)
-                .clipShape(RoundedRectangle(cornerRadius: 10))
-                .accessibilityHidden(true)
-
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Football channel")
-                        .font(.caption)
-                        .fontWeight(.bold)
-                        .tracking(2)
-                        .textCase(.uppercase)
-                        .foregroundStyle(Color.fwAccentSoft)
-                    Text("Casts posted into /football on Hypersnap.")
-                        .font(.subheadline)
-                        .foregroundStyle(Color.fwMuted)
-                }
-                Spacer()
-            }
-            .padding(.horizontal)
-            .padding(.vertical, 10)
-
+            // No header here any more: the channel icon lives in the
+            // top bar next to the account picture (ContentView), and the
+            // "Football channel / posted into /football on Hypersnap"
+            // text is gone — the feed itself says where you are.
             switch feed.state {
             case .loading where feed.casts.isEmpty:
                 ProgressView("Loading the feed…")

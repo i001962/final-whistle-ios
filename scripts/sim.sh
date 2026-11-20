@@ -75,7 +75,19 @@ for devs in json.load(sys.stdin)['devices'].values():
             print(d['name']); sys.exit()
 ")
 xcrun simctl boot "$DEVICE" 2>/dev/null || true
-open -a Simulator
+# Open the Simulator window by its full path inside the selected Xcode.
+# `open -a Simulator` fails with "Unable to find application named
+# 'Simulator'" when LaunchServices has not registered it (seen
+# 2026-11-20 after the Xcode 27.2 runtime download), and under set -e
+# that killed the whole script before the build. The GUI open is only
+# for showing the window — the boot/install/launch below work without
+# it — so never let it abort the run.
+SIM_APP="$(xcode-select -p)/../Applications/Simulator.app"
+if [[ -d "$SIM_APP" ]]; then
+    open "$SIM_APP" || echo "Warning: could not open $SIM_APP; open it manually from Xcode if you want the window." >&2
+else
+    open -a Simulator || echo "Warning: could not open the Simulator app; open it manually from Xcode if you want the window." >&2
+fi
 echo "Simulator: $DEVICE_NAME ($DEVICE)"
 
 # 4. Build for the simulator, signing off (no team needed).

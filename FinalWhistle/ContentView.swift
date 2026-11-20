@@ -19,11 +19,13 @@ final class Router: ObservableObject {
 /// Hypersnap native FID) lives behind the Account button, and is only
 /// needed to post, reply, like, or recast.
 ///
-/// Navigation follows the Footy app (footy.vercel.app): a top bar with
-/// the /football channel icon next to your profile picture, and a
-/// bottom tab bar — Feed, Videos, Scores, Fantasy. Feed and Videos are
-/// live; Scores and Fantasy are menus first, feeds next, so they show
-/// a placeholder for now. No favourite clubs/countries strip yet.
+/// Navigation follows the Footy app (footy.vercel.app): one top bar
+/// for the whole app — back upper left whenever something is open
+/// (thread, profile, room), the /football channel icon there at the
+/// top level, and your profile picture always upper right — plus a
+/// bottom tab bar — Feed, Videos, Rooms, Fantasy. Feed, Videos, and
+/// Rooms are live; Fantasy is a menu first, feed next, so it shows a
+/// placeholder for now. No favourite clubs/countries strip yet.
 ///
 /// LESSON (2026-11-20): the top bar was first built as toolbar items
 /// on the NavigationStack's Group — they silently never rendered (the
@@ -114,9 +116,9 @@ struct ContentView: View {
         })
     }
 
-    /// Your profile picture left of the /football channel icon; a back
-    /// chevron appears in front of them whenever a thread or profile
-    /// is open.
+    /// Back upper left whenever something is open (thread, profile,
+    /// room), the /football channel icon there at the top level; your
+    /// profile picture always upper right. One bar for the whole app.
     private var topBar: some View {
         HStack(spacing: 10) {
             if !router.path.isEmpty {
@@ -130,7 +132,18 @@ struct ContentView: View {
                         .background(Color.fwPanel, in: Circle())
                 }
                 .accessibilityLabel("Back")
+            } else {
+                AsyncImage(url: Self.channelImageURL) { image in
+                    image.resizable().scaledToFill()
+                } placeholder: {
+                    Color.fwPanelSoft
+                }
+                .frame(width: 32, height: 32)
+                .clipShape(RoundedRectangle(cornerRadius: 8))
+                .accessibilityLabel("Football channel")
             }
+
+            Spacer()
 
             Button {
                 showingProfile = true
@@ -150,17 +163,6 @@ struct ContentView: View {
                 }
             }
             .accessibilityLabel(identity.isSignedIn ? "Account" : "Sign in")
-
-            AsyncImage(url: Self.channelImageURL) { image in
-                image.resizable().scaledToFill()
-            } placeholder: {
-                Color.fwPanelSoft
-            }
-            .frame(width: 32, height: 32)
-            .clipShape(RoundedRectangle(cornerRadius: 8))
-            .accessibilityLabel("Football channel")
-
-            Spacer()
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 8)

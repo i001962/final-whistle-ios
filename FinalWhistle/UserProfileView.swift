@@ -105,6 +105,10 @@ struct UserProfileView: View {
         .background(Color.fwBackground)
         .navigationTitle(user?.username.map { "@\($0)" } ?? fid.fallbackUsername)
         .navigationBarTitleDisplayMode(.inline)
+        // No system nav bar: without this it shows as a second header
+        // under the app's own top bar. Back comes from that top bar
+        // (upper left); swipe-back still works.
+        .toolbar(.hidden, for: .navigationBar)
         .task { await load() }
         .sheet(item: $replyingTo) { cast in
             ComposeView(parent: cast, onPosted: { Task { await load() } })

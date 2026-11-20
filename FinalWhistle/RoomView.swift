@@ -141,6 +141,11 @@ struct RoomView: View {
             composer
         }
         .background(Color.fwBackground)
+        // No system nav bar here: the room is pushed onto the stack,
+        // and without this the system back chevron shows as a second
+        // header under the app's own top bar. Back comes from that
+        // top bar (upper left); swipe-back still works.
+        .toolbar(.hidden, for: .navigationBar)
         .task {
             await load()
             // Live room: poll for other fans' messages while open.
@@ -194,7 +199,12 @@ struct RoomView: View {
     }
 
     /// Walk a conversation's nested direct_replies into one flat list.
-    private static func flatten(_ replies: [Cast]) -> [Cast] {
+    /// nonisolated: it is pure (touches no view state), and load()
+    /// calls it from inside a TaskGroup child task, which runs off
+    /// the main actor — without this the build fails with
+    /// "Main actor-isolated static method 'flatten' cannot be called
+    /// from outside of the actor".
+    private nonisolated static func flatten(_ replies: [Cast]) -> [Cast] {
         var out: [Cast] = []
         for reply in replies {
             out.append(reply)

@@ -140,6 +140,19 @@ struct FeedService {
         return response.user
     }
 
+    /// A user's recent casts, newest first (Quilcast app.tsx userCasts:
+    /// /v2/farcaster/feed/user/casts?fid=&limit=25). Used by the profile
+    /// page a mention tap opens.
+    // RESTORED 2026-11-20: the Rooms commit (16fb9ca) wiped this — it
+    // was edited from a local copy that predated the other chat's
+    // 80e5eda addition. Never edit FeedService from a stale local copy;
+    // fetch the remote file first.
+    static func userCasts(fid: FID, limit: Int = 25) async throws -> [Cast] {
+        struct Response: Decodable { let casts: [Cast] }
+        let response: Response = try await get("/v2/farcaster/feed/user/casts?fid=\(fid.value)&limit=\(limit)")
+        return response.casts
+    }
+
     static func userCast(hash: String) async throws -> Cast {
         // Response shape is {"cast": {...}} on the Neynar-compatible read
         // API; fall back to a bare cast object if a node returns that.

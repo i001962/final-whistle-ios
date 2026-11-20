@@ -2,10 +2,13 @@ import SwiftUI
 
 /// A cast's thread, Quilcast-style (src/app.tsx Thread): the parents
 /// above it (up to five, so a reply reads in context), the cast itself,
-/// a reply prompt, then its direct replies, each with its first nested
-/// reply and a "show more" link into that reply's own thread.
-/// Replies come from the conversation endpoint: the cast carries
-/// direct_replies, each reply carrying its own.
+/// a reply prompt, then its replies as a real tree — every reply nested
+/// under its parent, indented with a guide line, to any depth.
+/// The old version showed only direct replies plus the first nested
+/// reply, so a reply deep in a thread (e.g. "HBD" under Kazani's reply
+/// to the birthday cast) rendered flat at the same level as its parent
+/// and read as a standalone post. Replies come from the conversation
+/// endpoint: the cast carries direct_replies, each reply carrying its own.
 struct ThreadView: View {
     @EnvironmentObject private var identity: IdentityStore
     @EnvironmentObject private var feed: FeedStore
@@ -73,43 +76,13 @@ struct ThreadView: View {
                                 .padding(.top, 4)
                         }
                         ForEach(replies) { reply in
-                            VStack(alignment: .leading, spacing: 8) {
-                                NavigationLink(value: reply) {
-                                    CastRow(
-                                        cast: reply,
-                                        onReply: { replyingTo = reply },
-                                        onQuote: { quoting = reply },
-                                        onOpenQuote: { selectedQuoted = $0 },
-                                        onReacted: { notice = $0 },
-                                        inThread: true
-                                    )
-                                }
-                                .buttonStyle(.plain)
-                                let kids = reply.directReplies ?? []
-                                if let first = kids.first {
-                                    NavigationLink(value: first) {
-                                        CastRow(
-                                            cast: first,
-                                            onReply: { replyingTo = first },
-                                            onQuote: { quoting = first },
-                                            onOpenQuote: { selectedQuoted = $0 },
-                                            onReacted: { notice = $0 },
-                                            inThread: true
-                                        )
-                                    }
-                                    .buttonStyle(.plain)
-                                    .padding(.leading, 24)
-                                }
-                                if kids.count > 1 {
-                                    NavigationLink(value: reply) {
-                                        Text("\(kids.count - 1) more \(kids.count - 1 == 1 ? "reply" : "replies")")
-                                            .font(.subheadline)
-                                            .foregroundStyle(Color.fwAccentSoft)
-                                    }
-                                    .buttonStyle(.plain)
-                                    .padding(.leading, 24)
-                                }
-                            }
+                            ThreadNodeView(
+                                cast: reply,
+                                onReply: { replyingTo = $0 },
+                                onQuote: { quoting = $0 },
+                                onOpenQuote: { selectedQuoted = $0 },
+                                onReacted: { notice = $0 }
+                            )
                         }
 
                         if let notice {
@@ -195,5 +168,54 @@ struct ThreadView: View {
             }
         }
         parents = chain
+    }
+}
+
+/// One node of the reply tree: the cast itself, then all of its children
+/// recursively, each level indented 16pt with a vertical guide line, so
+/// a reply reads as belonging to the cast above it. Tapping any cast
+/// opens that cast's own thread (parents shown above it there).
+struct ThreadNodeView: View {
+    let cast: Cast
+    let onReply: (Cast) -> Void
+    let onQuote: (Cast) -> Void
+    let onOpenQuote: (Cast) -> Void
+    let onReacted: (String) -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            NavigationLink(value: cast) {
+                CastRow(
+                    cast: cast,
+                    onReply: { onReply(cast) },
+                    onQuote: { onQuote(cast) },
+                    onOpenQuote: onOpenQuote,
+                    onReacted: onReacted,
+                    inThread: true
+                )
+            }
+            .buttonStyle(.plain)
+            let children = cast.directReplies ?? []
+            if !children.isEmpty {
+                VStack(alignment: .leading, spacing: 12) {
+                    ForEach(children) { child in
+                        ThreadNodeView(
+                            cast: child,
+                            onReply: onReply,
+                            onQuote: onQuote,
+                            onOpenQuote: onOpenQuote,
+                            onReacted: onReacted
+                        )
+                    }
+                }
+                .padding(.leading, 16)
+                .overlay(alignment: .leading) {
+                    Color.fwLine
+                        .frame(width: 1)
+                        .padding(.leading, 8)
+                        .padding(.vertical, 6)
+                }
+            }
+        }
     }
 }

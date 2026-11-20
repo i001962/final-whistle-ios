@@ -136,10 +136,11 @@ struct ComposeView: View {
                         .disabled(text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                                   || text.count > maxLength || isPosting)
                 }
-                ToolbarItemGroup(placement: .keyboard) {
-                    Spacer()
-                    Button("Done") { editorFocused = false }
-                }
+                // No keyboard Done button: it only hid the keyboard, so
+                // the sheet stayed open and Cancel was the only real exit
+                // — two dismiss-looking controls for one empty editor.
+                // Cancel (top left) is now the single way out; swiping
+                // the sheet down also dismisses it.
             }
             .onAppear {
                 // The sheet animation has to finish before the keyboard

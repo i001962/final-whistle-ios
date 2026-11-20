@@ -286,8 +286,13 @@ struct TrendingFeedResponse: Codable {
 /// The /football channel feed returns the same {"casts": [...]} shape.
 typealias ChannelFeedResponse = TrendingFeedResponse
 
-struct UserResponse: Codable {
-    struct User: Codable {
+/// Decode-only: the bio is read out of the nested profile.bio.text and
+/// there is no stored `profile` property, so a Codable conformance
+/// cannot synthesize encode(to:) — CodingKeys case 'profile' matches no
+/// stored property. Nothing in the app encodes a user response; it is
+/// only ever decoded from the /v2/farcaster/user endpoint.
+struct UserResponse: Decodable {
+    struct User: Decodable {
         let fid: FID
         let username: String?
         let displayName: String?

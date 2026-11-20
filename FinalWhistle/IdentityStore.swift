@@ -267,7 +267,9 @@ final class IdentityStore: ObservableObject {
         return FarcasterMessages.encodeMentions(displayText: text, mentions: pairs)
     }
 
-    /// Post a new top-level cast. Returns the cast hash (0x...).
+    /// Post a new top-level cast into the /football channel. Returns the
+    /// cast hash (0x...). The channel is parent_url: without it the cast
+    /// goes to the global feed and never shows in the app's feed.
     func post(text: String) async throws -> String {
         guard let fid = record?.fid else { throw IdentityError.notSignedIn }
         let seed = try signerSeed()
@@ -275,7 +277,8 @@ final class IdentityStore: ObservableObject {
         let data = FarcasterMessages.castAddData(
             fid: fid.value, timestamp: Date().farcasterEpoch,
             text: stored, mentions: fids, mentionPositions: positions,
-            parentAuthorFID: nil, parentHash: nil
+            parentAuthorFID: nil, parentHash: nil,
+            parentURL: FarcasterMessages.footballChannelURL
         )
         let hash = try await HypersnapClient.submitSigned(data: data, fid: fid.value, signerSeed: seed)
         return hash

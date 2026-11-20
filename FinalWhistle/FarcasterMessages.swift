@@ -12,6 +12,12 @@ import CryptoKit
 enum FarcasterMessages {
     static let networkMainnet: UInt64 = 1
 
+    /// The channel the app's feed shows. A top-level cast only lands in
+    /// /football when CastAddBody carries this as parent_url (field 7).
+    /// Without it the cast goes to the global feed and never appears in
+    /// the app's feed. Replies carry parent_cast_id instead, never both.
+    static let footballChannelURL = "https://farcaster.xyz/~/channel/football"
+
     // MARK: - MessageData envelope
 
     /// Build MessageData bytes. bodyField is the protobuf field number of the
@@ -100,11 +106,13 @@ enum FarcasterMessages {
     // MARK: - CastAdd (type 1)
 
     /// CastAddBody fields: mentions 2 (packed uint64), parent_cast_id 3,
-    /// text 4, mentions_positions 5 (packed uint32), type 8, format_version 9.
-    /// CastId fields: fid 1, hash 2.
+    /// text 4, mentions_positions 5 (packed uint32), parent_url 7,
+    /// type 8, format_version 9. CastId fields: fid 1, hash 2.
+    /// parent_url and parent_cast_id are mutually exclusive: a top-level
+    /// cast into a channel sets parent_url, a reply sets parent_cast_id.
     static func castAddBody(
         text: String, mentions: [UInt64], mentionPositions: [UInt32],
-        parentAuthorFID: UInt64?, parentHash: Data?
+        parentAuthorFID: UInt64?, parentHash: Data?, parentURL: String? = nil
     ) -> Data {
         var out = Data()
         out.append(Protobuf.packedVarintField(2, mentions))
@@ -116,6 +124,9 @@ enum FarcasterMessages {
         }
         out.append(Protobuf.stringField(4, text))
         out.append(Protobuf.packedUInt32Field(5, mentionPositions))
+        if let parentURL {
+            out.append(Protobuf.stringField(7, parentURL))
+        }
         // type 0 (regular cast) and format_version 0 are proto3 defaults
         // and are omitted, matching the Python reference bytes.
         return out
@@ -124,11 +135,11 @@ enum FarcasterMessages {
     static func castAddData(
         fid: UInt64, timestamp: UInt32,
         text: String, mentions: [UInt64], mentionPositions: [UInt32],
-        parentAuthorFID: UInt64?, parentHash: Data?
+        parentAuthorFID: UInt64?, parentHash: Data?, parentURL: String? = nil
     ) -> Data {
         let body = castAddBody(
             text: text, mentions: mentions, mentionPositions: mentionPositions,
-            parentAuthorFID: parentAuthorFID, parentHash: parentHash
+            parentAuthorFID: parentAuthorFID, parentHash: parentHash, parentURL: parentURL
         )
         return messageData(type: 1, fid: fid, timestamp: timestamp, bodyField: 5, body: body)
     }

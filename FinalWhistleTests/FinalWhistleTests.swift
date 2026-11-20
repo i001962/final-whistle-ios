@@ -35,6 +35,22 @@ final class FinalWhistleTests: XCTestCase {
         XCTAssertEqual(body.hexString, "1204c320e70722062068656c6c6f2a020006")
     }
 
+    func testCastAddBodyParentURL() {
+        // A top-level post into /football carries parent_url (field 7).
+        // Without it the cast goes to the global feed, not the channel.
+        let body = FarcasterMessages.castAddBody(
+            text: " hi", mentions: [], mentionPositions: [],
+            parentAuthorFID: nil, parentHash: nil,
+            parentURL: FarcasterMessages.footballChannelURL
+        )
+        let url = Data(FarcasterMessages.footballChannelURL.utf8)
+        var expected = Data()
+        expected.append(contentsOf: [0x22, 0x03, 0x20, 0x68, 0x69]) // text " hi"
+        expected.append(contentsOf: [0x3a, UInt8(url.count)]) // parent_url, field 7
+        expected.append(url)
+        XCTAssertEqual(body.hexString, expected.hexString)
+    }
+
     func testReactionBodyBytes() {
         let data = FarcasterMessages.reactionData(
             fid: 4294967310, timestamp: 123456, reactionType: 1,

@@ -103,10 +103,12 @@ struct FeedView: View {
             }
         }
         .sheet(isPresented: $showingCompose) {
-            ComposeView(parent: nil)
+            ComposeView(parent: nil, onPosted: { Task { await feed.refresh() } })
+                .presentationDetents([.medium, .large])
         }
         .sheet(item: $replyingTo) { cast in
-            ComposeView(parent: cast)
+            ComposeView(parent: cast, onPosted: { Task { await feed.refresh() } })
+                .presentationDetents([.medium, .large])
         }
         .task { await feed.refresh() }
     }

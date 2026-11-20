@@ -12,10 +12,12 @@ import os
 ///   GET /v2/farcaster/user/by-username?username=<name> -> {"user": {"fid": ...}}
 /// Do NOT use the for-you feed (it returns trending) or the cast summary
 /// endpoint (it returns a placeholder string, the node has no LLM).
-/// Note: the /football channel is quiet. At the 20 Nov 2026 check the
-/// newest cast in it was 7 Nov 2026, so a sparse feed is the channel
-/// itself, not a loading bug. The old keyword search (q=football) was
-/// fresher but pulled in casts from everywhere; it is gone by design.
+/// Note: the /football channel is quiet. At the 20 Nov 2026 check it
+/// held 7 casts in total, newest 7 Nov 2026, so a sparse, old feed is
+/// the channel itself, not a loading bug. The old keyword search
+/// (q=football) was fresher but pulled in casts from everywhere; it is
+/// gone by design. New top-level posts from the app carry parent_url
+/// https://farcaster.xyz/~/channel/football, so they land in this feed.
 
 struct FeedService {
     static let baseURL = URL(string: "https://hypersnap.castrater.xyz")!

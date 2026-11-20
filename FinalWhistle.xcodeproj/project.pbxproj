@@ -131,6 +131,13 @@
 			);
 			dependencies = ();
 			name = FinalWhistle;
+			packageProductDependencies = (
+				37D7DFF669923971221B0DD2 /* GRPCCore */,
+				3A8FD246C333DDFAD21FAE5A /* GRPCNIOTransportHTTP2 */,
+				3BFDAA80BD6A227D0E3C82D2 /* P256K */,
+				17AF5294BC7D398EF89E832F /* CryptoSwift */,
+				3DE11DAE9459DC19FB808E9A /* BLAKE3 */,
+			);
 			productName = FinalWhistle;
 			productReference = 6B85D2C92072C864A5322FB1 /* FinalWhistle.app */;
 			productType = "com.apple.product-type.application";
@@ -143,6 +150,12 @@
 			);
 			dependencies = (3288E15891BE5D429E31ECFF /* PBXTargetDependency */, );
 			name = FinalWhistleTests;
+			packageProductDependencies = (
+				37D7DFF669923971221B0DD2 /* GRPCCore */,
+				3BFDAA80BD6A227D0E3C82D2 /* P256K */,
+				17AF5294BC7D398EF89E832F /* CryptoSwift */,
+				3DE11DAE9459DC19FB808E9A /* BLAKE3 */,
+			);
 			productName = FinalWhistleTests;
 			productReference = 43E8B29C3081B552AA6757E1 /* FinalWhistleTests.xctest */;
 			productType = "com.apple.product-type.bundle.unit-test";

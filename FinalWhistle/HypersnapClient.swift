@@ -31,7 +31,10 @@ enum HypersnapClient {
 
     struct DataDeserializer: MessageDeserializer {
         func deserialize<Bytes: GRPCContiguousBytes>(_ bytes: Bytes) throws -> Data {
-            Data(bytes)
+            // Bytes is GRPCContiguousBytes, not a Sequence, so Data(bytes)
+            // has no matching initializer. Read via withUnsafeBytes instead
+            // (the pattern from grpc-swift's own JSONDeserializer).
+            bytes.withUnsafeBytes { Data($0) }
         }
     }
 
@@ -184,7 +187,9 @@ enum HypersnapClient {
         }
         // Fall back to the hash of the data we sent: MessageData bytes are
         // field 7 of the response, and BLAKE3-20 of them is the hash.
-        for field in try ProtobufReader(data: response).readFields() {
+        // readFields() is mutating, so it cannot be called on a temporary.
+        var fallbackReader = ProtobufReader(data: response)
+        for field in try fallbackReader.readFields() {
             if field.field == 7, let dataBytes = field.bytes {
                 return "0x" + Blake3.hash20(dataBytes).hexString
             }

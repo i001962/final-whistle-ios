@@ -112,13 +112,16 @@ enum FarcasterMessages {
     // MARK: - CastAdd (type 1)
 
     /// CastAddBody fields: mentions 2 (packed uint64), parent_cast_id 3,
-    /// text 4, mentions_positions 5 (packed uint32), parent_url 7,
+    /// text 4, mentions_positions 5 (packed uint32), embeds 6, parent_url 7,
     /// type 8, format_version 9. CastId fields: fid 1, hash 2.
     /// parent_url and parent_cast_id are mutually exclusive: a top-level
     /// cast into a channel sets parent_url, a reply sets parent_cast_id.
+    /// Embeds (Quilcast's fc.ts castBody): each embed is field 6 holding
+    /// an Embed message; a quoted cast is Embed field 2 = cast_id.
     static func castAddBody(
         text: String, mentions: [UInt64], mentionPositions: [UInt32],
-        parentAuthorFID: UInt64?, parentHash: Data?, parentURL: String? = nil
+        parentAuthorFID: UInt64?, parentHash: Data?, parentURL: String? = nil,
+        quotedCasts: [(fid: UInt64, hash: Data)] = []
     ) -> Data {
         var out = Data()
         out.append(Protobuf.packedVarintField(2, mentions))
@@ -130,6 +133,14 @@ enum FarcasterMessages {
         }
         out.append(Protobuf.stringField(4, text))
         out.append(Protobuf.packedUInt32Field(5, mentionPositions))
+        for quoted in quotedCasts {
+            var castId = Data()
+            castId.append(Protobuf.varintField(1, quoted.fid))
+            castId.append(Protobuf.bytesField(2, quoted.hash))
+            var embed = Data()
+            embed.append(Protobuf.bytesField(2, castId))
+            out.append(Protobuf.bytesField(6, embed))
+        }
         if let parentURL {
             out.append(Protobuf.stringField(7, parentURL))
         }
@@ -141,11 +152,13 @@ enum FarcasterMessages {
     static func castAddData(
         fid: UInt64, timestamp: UInt32,
         text: String, mentions: [UInt64], mentionPositions: [UInt32],
-        parentAuthorFID: UInt64?, parentHash: Data?, parentURL: String? = nil
+        parentAuthorFID: UInt64?, parentHash: Data?, parentURL: String? = nil,
+        quotedCasts: [(fid: UInt64, hash: Data)] = []
     ) -> Data {
         let body = castAddBody(
             text: text, mentions: mentions, mentionPositions: mentionPositions,
-            parentAuthorFID: parentAuthorFID, parentHash: parentHash, parentURL: parentURL
+            parentAuthorFID: parentAuthorFID, parentHash: parentHash,
+            parentURL: parentURL, quotedCasts: quotedCasts
         )
         return messageData(type: 1, fid: fid, timestamp: timestamp, bodyField: 5, body: body)
     }

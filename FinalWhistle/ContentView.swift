@@ -13,21 +13,27 @@ struct ContentView: View {
         NavigationStack {
             FeedView()
                 .toolbar {
+                    // Your profile picture is the account button, top
+                    // left. The "Final Whistle" title text is gone: in a
+                    // narrow window it truncated to "Fi..." and the
+                    // channel header below already says where you are.
                     ToolbarItem(placement: .navigationBarLeading) {
-                        Text("Final ")
-                            .font(.headline)
-                            .fontWeight(.black)
-                            .foregroundStyle(Color.fwText)
-                        + Text("Whistle")
-                            .font(.headline)
-                            .fontWeight(.black)
-                            .foregroundStyle(Color.fwLime)
-                    }
-                    ToolbarItem(placement: .navigationBarTrailing) {
                         Button {
                             showingProfile = true
                         } label: {
-                            Label("Account", systemImage: identity.isSignedIn ? "person.crop.circle.fill" : "person.crop.circle")
+                            if let pfpURL = identity.profile?.pfpURL {
+                                AsyncImage(url: pfpURL) { image in
+                                    image.resizable().scaledToFill()
+                                } placeholder: {
+                                    Color.fwPanelSoft
+                                }
+                                .frame(width: 32, height: 32)
+                                .clipShape(Circle())
+                            } else {
+                                Image(systemName: identity.isSignedIn ? "person.crop.circle.fill" : "person.crop.circle")
+                                    .font(.title2)
+                                    .foregroundStyle(Color.fwAccent)
+                            }
                         }
                         .accessibilityLabel(identity.isSignedIn ? "Account" : "Sign in")
                     }

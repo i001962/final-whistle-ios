@@ -130,7 +130,47 @@ struct CastReplies: Codable, Hashable {
     enum CodingKeys: String, CodingKey { case count }
 }
 
+/// What the signed-in viewer did to a cast, when the node was asked with
+/// viewer_fid (Quilcast's api.ts: nodes with Hypersnap PR #43 answer this
+/// on every /v2 cast). Without viewer_fid the field is absent.
+struct ViewerContext: Codable, Hashable {
+    var liked: Bool = false
+    var recasted: Bool = false
+
+    enum CodingKeys: String, CodingKey { case liked, recasted }
+
+    init(liked: Bool = false, recasted: Bool = false) {
+        self.liked = liked
+        self.recasted = recasted
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        liked = try container.decodeIfPresent(Bool.self, forKey: .liked) ?? false
+        recasted = try container.decodeIfPresent(Bool.self, forKey: .recasted) ?? false
+    }
+}
+
+/// One embed on a cast: a link URL, or a quoted cast (cast_id).
+/// Quilcast's write.ts builds a quoted cast as Embed field 2 = cast_id.
+struct CastEmbed: Codable, Hashable {
+    let url: String?
+    let castID: CastIDRef?
+
+    struct CastIDRef: Codable, Hashable {
+        let fid: FID
+        let hash: String
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case url
+        case castID = "cast_id"
+    }
+}
+
 /// One cast from the public read API. The hash is hex without a 0x prefix.
+/// direct_replies is only filled by the conversation endpoint; embeds
+/// carry quoted casts; viewer_context only when asked with viewer_fid.
 struct Cast: Codable, Hashable, Identifiable {
     let hash: String
     let text: String
@@ -141,14 +181,19 @@ struct Cast: Codable, Hashable, Identifiable {
     let parentHash: String?
     let parentAuthorFID: FID?
     let threadHash: String?
+    var viewerContext: ViewerContext?
+    var directReplies: [Cast]?
+    let embeds: [CastEmbed]?
 
     var id: String { hash }
 
     enum CodingKeys: String, CodingKey {
-        case hash, text, timestamp, author, reactions, replies
+        case hash, text, timestamp, author, reactions, replies, embeds
         case parentHash = "parent_hash"
         case parentAuthor = "parent_author"
         case threadHash = "thread_hash"
+        case viewerContext = "viewer_context"
+        case directReplies = "direct_replies"
     }
 
     struct ParentAuthor: Codable {
@@ -166,6 +211,9 @@ struct Cast: Codable, Hashable, Identifiable {
         parentHash = try container.decodeIfPresent(String.self, forKey: .parentHash)
         parentAuthorFID = try container.decodeIfPresent(ParentAuthor.self, forKey: .parentAuthor)?.fid
         threadHash = try container.decodeIfPresent(String.self, forKey: .threadHash)
+        viewerContext = try container.decodeIfPresent(ViewerContext.self, forKey: .viewerContext)
+        directReplies = try container.decodeIfPresent([Cast].self, forKey: .directReplies)
+        embeds = try container.decodeIfPresent([CastEmbed].self, forKey: .embeds)
     }
 
     func encode(to encoder: Encoder) throws {
@@ -178,7 +226,19 @@ struct Cast: Codable, Hashable, Identifiable {
         try container.encode(replies, forKey: .replies)
         try container.encodeIfPresent(parentHash, forKey: .parentHash)
         try container.encodeIfPresent(threadHash, forKey: .threadHash)
+        try container.encodeIfPresent(viewerContext, forKey: .viewerContext)
+        try container.encodeIfPresent(directReplies, forKey: .directReplies)
+        try container.encodeIfPresent(embeds, forKey: .embeds)
     }
+}
+
+/// The conversation endpoint: {"conversation": {"cast": {...}}} where the
+/// cast carries direct_replies (each with its own direct_replies).
+struct ConversationResponse: Codable {
+    struct Conversation: Codable {
+        let cast: Cast
+    }
+    let conversation: Conversation
 }
 
 struct TrendingFeedResponse: Codable {

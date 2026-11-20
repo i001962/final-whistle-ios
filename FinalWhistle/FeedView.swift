@@ -4,11 +4,20 @@ import SwiftUI
 /// No tabs, no trending. Styled on final-whistle.app: near-black navy
 /// background, panel cards with a thin line border, lime highlights,
 /// magenta for the compose button.
+///
+/// The feed is the channel under its real parent URL
+/// (Quilcast's feed/parent_urls), so it is the same channel posts go
+/// into — fresh casts daily, not the stale feed/channels bucket.
+/// Tapping a cast opens its thread; the heart fills when you liked it
+/// (viewer state from the node, Quilcast's mine/taps pattern); the
+/// repost button opens a quoted repost, never a plain recast.
 struct FeedView: View {
     @EnvironmentObject private var identity: IdentityStore
     @EnvironmentObject private var feed: FeedStore
     @State private var showingCompose = false
     @State private var replyingTo: Cast?
+    @State private var quoting: Cast?
+    @State private var selectedThread: Cast?
     @State private var notice: String?
 
     // /football channel image, from the channel list at
@@ -66,14 +75,20 @@ struct FeedView: View {
                 .foregroundStyle(Color.fwMuted)
             default:
                 List(feed.casts) { cast in
-                    CastRow(cast: cast, onReply: { replyingTo = cast }, onReacted: { notice = $0 })
-                        .listRowBackground(Color.clear)
-                        .listRowSeparator(.hidden)
-                        .listRowInsets(EdgeInsets(top: 5, leading: 16, bottom: 5, trailing: 16))
+                    CastRow(
+                        cast: cast,
+                        onReply: { replyingTo = cast },
+                        onQuote: { quoting = cast },
+                        onThread: { selectedThread = cast },
+                        onReacted: { notice = $0 }
+                    )
+                    .listRowBackground(Color.clear)
+                    .listRowSeparator(.hidden)
+                    .listRowInsets(EdgeInsets(top: 5, leading: 16, bottom: 5, trailing: 16))
                 }
                 .listStyle(.plain)
                 .scrollContentBackground(.hidden)
-                .refreshable { await feed.refresh() }
+                .refreshable { await feed.refresh(viewerFID: identity.record?.fid) }
             }
 
             if let notice {
@@ -103,14 +118,27 @@ struct FeedView: View {
             }
         }
         .sheet(isPresented: $showingCompose) {
-            ComposeView(parent: nil, onPosted: { Task { await feed.refresh() } })
+            ComposeView(onPosted: { Task { await feed.refresh(viewerFID: identity.record?.fid) } })
                 .presentationDetents([.medium, .large])
         }
         .sheet(item: $replyingTo) { cast in
-            ComposeView(parent: cast, onPosted: { Task { await feed.refresh() } })
+            ComposeView(parent: cast, onPosted: { Task { await feed.refresh(viewerFID: identity.record?.fid) } })
                 .presentationDetents([.medium, .large])
         }
-        .task { await feed.refresh() }
+        .sheet(item: $quoting) { cast in
+            ComposeView(quoted: cast, onPosted: {
+                feed.markQuoted(cast)
+                Task { await feed.refresh(viewerFID: identity.record?.fid) }
+            })
+            .presentationDetents([.medium, .large])
+        }
+        .task { await feed.refresh(viewerFID: identity.record?.fid) }
+        .onChange(of: identity.record?.fid.value) {
+            Task { await feed.refresh(viewerFID: identity.record?.fid) }
+        }
+        .navigationDestination(item: $selectedThread) { cast in
+            ThreadView(cast: cast)
+        }
     }
 }
 
@@ -119,8 +147,13 @@ struct CastRow: View {
     @EnvironmentObject private var feed: FeedStore
     let cast: Cast
     let onReply: () -> Void
+    let onQuote: () -> Void
+    let onThread: () -> Void
     let onReacted: (String) -> Void
     @State private var working = false
+
+    private var liked: Bool { feed.isLiked(cast) }
+    private var quoted: Bool { feed.isQuoted(cast) }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -156,23 +189,29 @@ struct CastRow: View {
                 .font(.body)
                 .foregroundStyle(Color.fwText)
 
+            if let quotedRef = cast.embeds?.first(where: { $0.castID != nil })?.castID {
+                QuotedCastView(ref: quotedRef, onThread: onThread)
+            }
+
             HStack(spacing: 24) {
                 Button(action: onReply) {
                     Label("\(cast.replies.count)", systemImage: "bubble.left")
                 }
                 .disabled(!identity.isSignedIn)
+                Button(action: onQuote) {
+                    Label("\(cast.reactions.recastsCount)", systemImage: "quote.bubble")
+                        .foregroundStyle(quoted ? Color.fwLime : Color.fwMuted)
+                }
+                .disabled(!identity.isSignedIn)
+                .accessibilityLabel(quoted ? "Quoted repost" : "Quote repost")
                 Button {
-                    Task { await react(type: 2, label: "Recast") }
+                    Task { await toggleLike() }
                 } label: {
-                    Label("\(cast.reactions.recastsCount)", systemImage: "repeat")
+                    Label("\(feed.likesCount(for: cast))", systemImage: liked ? "heart.fill" : "heart")
+                        .foregroundStyle(liked ? Color.red : Color.fwMuted)
                 }
                 .disabled(!identity.isSignedIn || working)
-                Button {
-                    Task { await react(type: 1, label: "Like") }
-                } label: {
-                    Label("\(cast.reactions.likesCount)", systemImage: "heart")
-                }
-                .disabled(!identity.isSignedIn || working)
+                .accessibilityLabel(liked ? "Unlike" : "Like")
             }
             .font(.subheadline)
             .foregroundStyle(Color.fwMuted)
@@ -185,17 +224,65 @@ struct CastRow: View {
             RoundedRectangle(cornerRadius: 16)
                 .stroke(Color.fwLine, lineWidth: 1)
         )
+        .contentShape(Rectangle())
+        .onTapGesture { onThread() }
     }
 
-    private func react(type: UInt64, label: String) async {
+    /// Optimistic toggle, Quilcast-style: the heart fills and the count
+    /// moves at once; the node call follows, and a failure reverts it.
+    /// The old version only bumped the count after a successful call and
+    /// kept no liked state at all, so a tap that landed on the node
+    /// still showed an empty heart and an unchanged count.
+    private func toggleLike() async {
+        let shouldLike = feed.toggleLike(cast)
         working = true
         defer { working = false }
         do {
-            let hash = try await identity.react(to: cast, type: type)
-            feed.bumpReaction(for: cast.hash, like: type == 1)
-            onReacted("\(label) posted: \(hash)")
+            _ = try await identity.react(to: cast, type: 1, remove: !shouldLike)
         } catch {
-            onReacted("\(label) failed: \(error.localizedDescription)")
+            feed.setLiked(cast, liked: !shouldLike)
+            onReacted("Like failed: \(error.localizedDescription)")
+        }
+    }
+}
+
+/// A quoted cast embedded in a cast: the quoted author's name and text,
+/// fetched by hash. Tapping it opens that cast's thread.
+struct QuotedCastView: View {
+    let ref: CastEmbed.CastIDRef
+    let onThread: () -> Void
+    @State private var quoted: Cast?
+    @State private var failed = false
+
+    var body: some View {
+        Group {
+            if let quoted {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("@\(quoted.author.displayUsername)")
+                        .font(.subheadline)
+                        .fontWeight(.semibold)
+                        .foregroundStyle(Color.fwText)
+                    Text(quoted.text)
+                        .font(.subheadline)
+                        .foregroundStyle(Color.fwMuted)
+                        .lineLimit(4)
+                }
+                .padding(10)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(Color.fwPanelSoft, in: RoundedRectangle(cornerRadius: 12))
+                .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.fwLine, lineWidth: 1))
+            } else if failed {
+                Text("Quoted cast unavailable")
+                    .font(.footnote)
+                    .foregroundStyle(Color.fwMuted)
+            }
+        }
+        .task {
+            do {
+                quoted = try await FeedService.userCast(hash: ref.hash)
+            } catch {
+                failed = true
+            }
         }
     }
 }

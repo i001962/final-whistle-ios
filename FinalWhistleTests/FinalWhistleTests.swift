@@ -51,6 +51,49 @@ final class FinalWhistleTests: XCTestCase {
         XCTAssertEqual(body.hexString, expected.hexString)
     }
 
+    func testCastAddBodyQuoteEmbed() {
+        // A quoted repost carries the quoted cast as Embed field 6, with
+        // the cast_id inside as Embed field 2 (Quilcast's fc.ts castBody).
+        let hash = Data(repeating: 0x11, count: 20)
+        let body = FarcasterMessages.castAddBody(
+            text: " hi", mentions: [], mentionPositions: [],
+            parentAuthorFID: nil, parentHash: nil,
+            parentURL: FarcasterMessages.footballChannelURL,
+            quotedCasts: [(fid: 4163, hash: hash)]
+        )
+        // cast_id: fid 4163 varint (0x08 0xc3 0x20), hash bytes (0x12 0x14 + 20 bytes)
+        var castId = Data()
+        castId.append(contentsOf: [0x08, 0xc3, 0x20, 0x12, 0x14])
+        castId.append(hash)
+        // embed: field 2, length of cast_id
+        var embed = Data()
+        embed.append(contentsOf: [0x12, UInt8(castId.count)])
+        embed.append(castId)
+        XCTAssertTrue(body.hexString.contains(embed.hexString))
+        // and the channel parent_url (field 7) is still there
+        XCTAssertTrue(body.hexString.contains(FarcasterMessages.footballChannelURL.utf8.map { String(format: "%02x", $0) }.joined()))
+    }
+
+    func testFeedDecodesViewerContextAndEmbeds() throws {
+        let json = """
+        {"casts": [{"object": "cast", "hash": "aa", "text": "quoted", "timestamp": "2026-11-20T19:17:43.000Z",
+        "author": {"fid": 4294967327, "username": "fid:4294967327"},
+        "reactions": {"likes_count": 2, "recasts_count": 1}, "replies": {"count": 1},
+        "viewer_context": {"liked": true, "recasted": false},
+        "embeds": [{"cast_id": {"fid": 4163, "hash": "bb"}}],
+        "direct_replies": [{"hash": "cc", "text": "reply", "timestamp": "2026-11-20T19:20:00.000Z",
+        "author": {"fid": 4163, "username": "kmacb.eth"},
+        "reactions": {"likes_count": 0, "recasts_count": 0}, "replies": {"count": 0}}]}]}
+        """.data(using: .utf8)!
+        let feed = try FeedService.makeDecoder().decode(TrendingFeedResponse.self, from: json)
+        let cast = feed.casts[0]
+        XCTAssertEqual(cast.viewerContext?.liked, true)
+        XCTAssertEqual(cast.embeds?.first?.castID?.fid.value, 4163)
+        XCTAssertEqual(cast.embeds?.first?.castID?.hash, "bb")
+        XCTAssertEqual(cast.directReplies?.count, 1)
+        XCTAssertEqual(cast.directReplies?.first?.author.displayUsername, "kmacb.eth")
+    }
+
     func testReactionBodyBytes() {
         let data = FarcasterMessages.reactionData(
             fid: 4294967310, timestamp: 123456, reactionType: 1,

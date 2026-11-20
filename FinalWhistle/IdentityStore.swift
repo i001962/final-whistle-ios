@@ -284,6 +284,24 @@ final class IdentityStore: ObservableObject {
         return hash
     }
 
+    /// Quote-repost a cast: a new top-level cast into /football carrying
+    /// the quoted cast as an embed (Quilcast's post() with quote).
+    /// This is the app's only repost: there is no plain recast button.
+    func quote(cast: Cast, text: String) async throws -> String {
+        guard let fid = record?.fid else { throw IdentityError.notSignedIn }
+        guard let quotedHash = Data(hex: cast.hash) else { throw IdentityError.badHash }
+        let seed = try signerSeed()
+        let (stored, fids, positions) = await resolveMentions(in: text)
+        let data = FarcasterMessages.castAddData(
+            fid: fid.value, timestamp: Date().farcasterEpoch,
+            text: stored, mentions: fids, mentionPositions: positions,
+            parentAuthorFID: nil, parentHash: nil,
+            parentURL: FarcasterMessages.footballChannelURL,
+            quotedCasts: [(fid: cast.author.fid.value, hash: quotedHash)]
+        )
+        return try await HypersnapClient.submitSigned(data: data, fid: fid.value, signerSeed: seed)
+    }
+
     /// Reply to a cast. parent_cast_id.fid is the PARENT author's FID.
     func reply(to cast: Cast, text: String) async throws -> String {
         guard let fid = record?.fid else { throw IdentityError.notSignedIn }

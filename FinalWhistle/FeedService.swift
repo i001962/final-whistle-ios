@@ -3,22 +3,34 @@ import os
 
 /// Public Hypersnap reads. No auth, no API key, HTTPS only.
 /// Base: https://hypersnap.castrater.xyz
-/// Verified live 20 Nov 2026:
-///   GET /v2/farcaster/feed/channels?channel_ids=football&limit=20
-///     -> {"casts": [...]} — every cast's parent_url is
-///     https://farcaster.xyz/~/channel/football. This is the real
-///     /football channel feed, not a keyword search.
+/// Verified live 20 Nov 2026, following Quilcast
+/// (github.com/backmeupplz/quilcast, MIT — server/index.mjs channelFeed,
+/// src/app.tsx ChannelPage, src/api.ts urlOf/loadMine):
+///   GET /v2/farcaster/feed/parent_urls?parent_urls=<channel url>&limit=50
+///     -> {"casts": [...]} — the channel's casts under its REAL parent
+///     URL. For /football that URL is the NFT address
+///     chain://eip155:1/erc721:0x7abfe142031532e1ad0e46f971cc0ef7cf4b98b0.
+///     At the 20 Nov check this returned 50 fresh casts, newest the
+///     user's own "Test" post that day, then 19 Nov, 17 Nov, ... — the
+///     live channel, with footy-app, kmacb.eth, kazani and others.
+///   The old feed/channels?channel_ids=football endpoint returns a
+///   DIFFERENT, dead bucket: only 7 casts, all with parent_url
+///   https://farcaster.xyz/~/channel/football, newest 7 Nov 2026.
+///   That is why the app showed a stale feed while posts (correctly
+///   carrying the chain:// parent_url) never appeared in it. Do NOT
+///   use feed/channels for this channel.
 ///   GET /v2/farcaster/user?fid=<fid> -> {"user": {...}}
 ///   GET /v2/farcaster/user/by-username?username=<name> -> {"user": {"fid": ...}}
+///   GET /v2/farcaster/cast/conversation?identifier=<hash>&type=hash
+///     -> {"conversation": {"cast": {..., "direct_replies": [...]}}}
+///     (direct_replies live INSIDE the cast, not at the top level).
+///   GET /v1/reactionsByFid?fid=<fid>&reaction_type=Like|Recast
+///     -> {"messages": [{"data": {"reactionBody": {"targetCastId":
+///        {"hash": "0x..."}}}}]} — what the viewer already liked/recast.
+///   Pass viewer_fid on /v2 reads when signed in: the node then answers
+///   viewer_context {liked, recasted} on every cast (Hypersnap PR #43).
 /// Do NOT use the for-you feed (it returns trending) or the cast summary
 /// endpoint (it returns a placeholder string, the node has no LLM).
-/// Note: the /football channel is quiet. At the 20 Nov 2026 check it
-/// held 7 casts in total, newest 7 Nov 2026, so a sparse, old feed is
-/// the channel itself, not a loading bug. The old keyword search
-/// (q=football) was fresher but pulled in casts from everywhere; it is
-/// gone by design. New top-level posts from the app carry parent_url
-/// chain://eip155:1/erc721:0x7abfe142031532e1ad0e46f971cc0ef7cf4b98b0
-/// (the channel's NFT-gated canonical URL), so they land in this feed.
 
 struct FeedService {
     static let baseURL = URL(string: "https://hypersnap.castrater.xyz")!
@@ -66,10 +78,54 @@ struct FeedService {
     }
 
     /// The whole feed is the /football channel. No trending tab, no
-    /// keyword search: only casts posted into the channel.
-    static func football(limit: Int = 20) async throws -> [Cast] {
-        let response: ChannelFeedResponse = try await get("/v2/farcaster/feed/channels?channel_ids=football&limit=\(limit)")
+    /// keyword search: only casts posted into the channel, under its
+    /// real parent URL (Quilcast's feed/parent_urls, not feed/channels).
+    static func football(limit: Int = 50, viewerFID: FID? = nil) async throws -> [Cast] {
+        // Percent-encode the parent URL strictly: ":" and "/" must not
+        // survive inside a query value.
+        let strict = CharacterSet(charactersIn: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~")
+        guard let encoded = FarcasterMessages.footballChannelURL.addingPercentEncoding(withAllowedCharacters: strict) else {
+            throw URLError(.badURL)
+        }
+        var path = "/v2/farcaster/feed/parent_urls?parent_urls=\(encoded)&limit=\(limit)"
+        if let viewerFID { path += "&viewer_fid=\(viewerFID.value)" }
+        let response: ChannelFeedResponse = try await get(path)
         return dedup(response.casts).sorted { $0.timestamp > $1.timestamp }
+    }
+
+    /// One cast plus its direct replies, for the thread view.
+    static func conversation(hash: String, viewerFID: FID? = nil) async throws -> Cast {
+        var path = "/v2/farcaster/cast/conversation?identifier=\(hash)&type=hash"
+        if let viewerFID { path += "&viewer_fid=\(viewerFID.value)" }
+        let response: ConversationResponse = try await get(path)
+        return response.conversation.cast
+    }
+
+    /// Hashes (bare hex, lowercased) the FID already liked or recast,
+    /// newest first (Quilcast's loadMine). Used to fill the like/recast
+    /// buttons on launch, since a fresh feed may not carry viewer_context.
+    static func reactionsByFid(fid: FID, type: String) async throws -> Set<String> {
+        struct Response: Decodable {
+            struct Message: Decodable {
+                struct Data: Decodable {
+                    struct ReactionBody: Decodable {
+                        struct TargetCastId: Decodable { let hash: String }
+                        let targetCastId: TargetCastId?
+                    }
+                    let reactionBody: ReactionBody?
+                }
+                let data: Data?
+            }
+            let messages: [Message]
+        }
+        let response: Response = try await get("/v1/reactionsByFid?fid=\(fid.value)&reaction_type=\(type)&pageSize=200&reverse=true")
+        var out = Set<String>()
+        for message in response.messages {
+            if let hash = message.data?.reactionBody?.targetCastId?.hash {
+                out.insert(hash.replacingOccurrences(of: "0x", with: "").lowercased())
+            }
+        }
+        return out
     }
 
     static func user(fid: FID) async throws -> UserResponse.User {
@@ -120,6 +176,16 @@ struct FeedService {
 final class FeedStore: ObservableObject {
     @Published private(set) var casts: [Cast] = []
     @Published private(set) var state: LoadState = .loading
+    /// Hashes (bare hex, lowercased) this viewer liked / quoted-reposted.
+    /// Source of truth for the filled heart and the coloured quote button.
+    /// Merged from viewer_context on each cast and from reactionsByFid
+    /// (Quilcast's mine), and kept across launches in LocalStore.
+    @Published private(set) var likedHashes: Set<String> = []
+    @Published private(set) var quotedHashes: Set<String> = []
+    /// Hashes the user toggled this session: a refresh must not undo a
+    /// tap the server has not caught up with yet (Quilcast's taps map).
+    private var tappedThisSession: Set<String> = []
+    private var mineLoadedForFID: UInt64?
 
     enum LoadState: Equatable {
         case loading
@@ -129,6 +195,8 @@ final class FeedStore: ObservableObject {
     }
 
     private let cache = LocalStore<[Cast]>(fileName: "feed-cache.json")
+    private let likedStore = LocalStore<Set<String>>(fileName: "liked-hashes.json")
+    private let quotedStore = LocalStore<Set<String>>(fileName: "quoted-hashes.json")
 
     init() {
         // Open at once with what is saved. Never block launch on the network.
@@ -136,15 +204,21 @@ final class FeedStore: ObservableObject {
             casts = cached
             state = .loaded
         }
+        likedHashes = (try? likedStore.load()) ?? []
+        quotedHashes = (try? quotedStore.load()) ?? []
     }
 
-    func refresh() async {
+    func refresh(viewerFID: FID? = nil) async {
         state = .loading
+        if let viewerFID, mineLoadedForFID != viewerFID.value {
+            await loadViewerState(fid: viewerFID)
+        }
         do {
-            let fresh = try await FeedService.football()
+            let fresh = try await FeedService.football(viewerFID: viewerFID)
             casts = fresh
             state = fresh.isEmpty ? .empty : .loaded
             try? cache.save(fresh)
+            mergeViewerContext()
         } catch {
             if casts.isEmpty {
                 state = .failed(error.localizedDescription)
@@ -156,12 +230,66 @@ final class FeedStore: ObservableObject {
         }
     }
 
-    /// Optimistic local reaction count bump. The server count is the truth on
-    /// the next refresh; this only makes the tap feel instant.
-    func bumpReaction(for hash: String, like: Bool) {
-        guard let index = casts.firstIndex(where: { $0.hash == hash }) else { return }
-        var cast = casts[index]
-        if like { cast.reactions.likesCount += 1 } else { cast.reactions.recastsCount += 1 }
-        casts[index] = cast
+    /// Load what the viewer already liked/recast from the node, once per FID.
+    func loadViewerState(fid: FID) async {
+        mineLoadedForFID = fid.value
+        do {
+            let likes = try await FeedService.reactionsByFid(fid: fid, type: "Like")
+            likedHashes.formUnion(likes)
+            try? likedStore.save(likedHashes)
+        } catch {
+            // Buttons just stay unfilled; the tap still works.
+        }
+    }
+
+    /// Fold each cast's viewer_context into the sets, except for hashes
+    /// the user toggled this session (the server may lag the tap).
+    private func mergeViewerContext() {
+        for cast in casts {
+            let key = cast.hash.lowercased()
+            guard !tappedThisSession.contains(key), let ctx = cast.viewerContext else { continue }
+            if ctx.liked { likedHashes.insert(key) } else { likedHashes.remove(key) }
+        }
+        try? likedStore.save(likedHashes)
+    }
+
+    func isLiked(_ cast: Cast) -> Bool { likedHashes.contains(cast.hash.lowercased()) }
+    func isQuoted(_ cast: Cast) -> Bool { quotedHashes.contains(cast.hash.lowercased()) }
+
+    /// The like count to show: the server count, adjusted for a tap the
+    /// server count does not include yet (Quilcast's tapped()).
+    func likesCount(for cast: Cast) -> Int {
+        let base = cast.reactions.likesCount
+        let serverSaysLiked = cast.viewerContext?.liked ?? false
+        if isLiked(cast) && !serverSaysLiked { return base + 1 }
+        if !isLiked(cast) && serverSaysLiked { return max(0, base - 1) }
+        return base
+    }
+
+    /// Optimistic like toggle. Returns true when the tap should be sent
+    /// to the node (like), false when it should be removed (unlike).
+    /// The caller reverts on failure via setLiked.
+    func toggleLike(_ cast: Cast) -> Bool {
+        let key = cast.hash.lowercased()
+        tappedThisSession.insert(key)
+        if likedHashes.contains(key) {
+            likedHashes.remove(key)
+            try? likedStore.save(likedHashes)
+            return false
+        }
+        likedHashes.insert(key)
+        try? likedStore.save(likedHashes)
+        return true
+    }
+
+    func setLiked(_ cast: Cast, liked: Bool) {
+        let key = cast.hash.lowercased()
+        if liked { likedHashes.insert(key) } else { likedHashes.remove(key) }
+        try? likedStore.save(likedHashes)
+    }
+
+    func markQuoted(_ cast: Cast) {
+        quotedHashes.insert(cast.hash.lowercased())
+        try? quotedStore.save(quotedHashes)
     }
 }

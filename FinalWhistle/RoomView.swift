@@ -18,7 +18,7 @@ struct ChatRoom: Identifiable, Hashable {
     static let all: [ChatRoom] = [
         ChatRoom(
             id: "1",
-            title: "Match Room 1",
+            title: "The Gantry",
             subtitle: "Live match chat — final-whistle.app/chat/1",
             parentURL: "https://final-whistle.app/chat/1"
         ),
@@ -140,7 +140,14 @@ struct RoomView: View {
         .navigationDestination(for: Cast.self) { cast in
             ThreadView(cast: cast)
         }
-        .task { await load() }
+        .task {
+            await load()
+            // Live room: poll for other fans' messages while open.
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 30_000_000_000)
+                await load()
+            }
+        }
         .sheet(isPresented: $showingProfile) {
             ProfileView()
         }
@@ -259,17 +266,39 @@ struct RoomView: View {
         do {
             if let replyingTo {
                 _ = try await identity.reply(to: replyingTo, text: text)
+                draft = ""
+                self.replyingTo = nil
+                composerFocused = false
+                // A reply lives in the message's thread, not the room
+                // list — one delayed reload refreshes its reply count.
+                try? await Task.sleep(nanoseconds: 2_000_000_000)
+                await load()
             } else {
-                _ = try await identity.post(text: text, parentURL: room.parentURL)
+                let hash = try await identity.post(text: text, parentURL: room.parentURL)
+                draft = ""
+                composerFocused = false
+                await reloadUntilVisible(hash: hash)
             }
-            draft = ""
-            self.replyingTo = nil
-            composerFocused = false
-            await load()
         } catch {
             sendError = error.localizedDescription
         }
         sending = false
+    }
+
+    /// The node takes a moment to index a new cast into the parent_urls
+    /// feed — the reload right after submit usually returns before it
+    /// lands, so the message looks lost even though it posted fine
+    /// (verified live 2026-11-20: the cast was in the feed minutes
+    /// later, parent_url exact). Poll until the new hash shows up.
+    private func reloadUntilVisible(hash: String, attempts: Int = 5) async {
+        let key = hash.replacingOccurrences(of: "0x", with: "").lowercased()
+        for attempt in 0..<attempts {
+            if attempt > 0 {
+                try? await Task.sleep(nanoseconds: 2_000_000_000)
+            }
+            await load()
+            if messages.contains(where: { $0.hash.lowercased() == key }) { return }
+        }
     }
 }
 

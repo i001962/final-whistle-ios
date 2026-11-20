@@ -32,13 +32,13 @@ final class Router: ObservableObject {
 /// and the top bar's back chevron (plus swipe-back) is the way out of
 /// a thread.
 enum AppTab: CaseIterable {
-    case feed, videos, scores, fantasy
+    case feed, videos, rooms, fantasy
 
     var label: String {
         switch self {
         case .feed: return "Feed"
         case .videos: return "Videos"
-        case .scores: return "Scores"
+        case .rooms: return "Rooms"
         case .fantasy: return "Fantasy"
         }
     }
@@ -47,7 +47,7 @@ enum AppTab: CaseIterable {
         switch self {
         case .feed: return "soccerball"
         case .videos: return "play.rectangle.on.rectangle"
-        case .scores: return "sportscourt"
+        case .rooms: return "bubble.left.and.bubble.right"
         case .fantasy: return "star"
         }
     }
@@ -78,13 +78,9 @@ struct ContentView: View {
                     case .videos:
                         VideosView()
                             .toolbar(.hidden, for: .navigationBar)
-                    case .scores:
-                        ComingSoonView(
-                            icon: "sportscourt",
-                            title: "Scores",
-                            text: "Live scores are coming soon — the scores feed is next, after the menus."
-                        )
-                        .toolbar(.hidden, for: .navigationBar)
+                    case .rooms:
+                        RoomsView()
+                            .toolbar(.hidden, for: .navigationBar)
                     case .fantasy:
                         ComingSoonView(
                             icon: "star",
@@ -118,8 +114,9 @@ struct ContentView: View {
         })
     }
 
-    /// Channel icon next to the account picture, left; a back chevron
-    /// appears in front of them whenever a thread or profile is open.
+    /// Your profile picture left of the /football channel icon; a back
+    /// chevron appears in front of them whenever a thread or profile
+    /// is open.
     private var topBar: some View {
         HStack(spacing: 10) {
             if !router.path.isEmpty {
@@ -134,15 +131,6 @@ struct ContentView: View {
                 }
                 .accessibilityLabel("Back")
             }
-
-            AsyncImage(url: Self.channelImageURL) { image in
-                image.resizable().scaledToFill()
-            } placeholder: {
-                Color.fwPanelSoft
-            }
-            .frame(width: 32, height: 32)
-            .clipShape(RoundedRectangle(cornerRadius: 8))
-            .accessibilityLabel("Football channel")
 
             Button {
                 showingProfile = true
@@ -162,6 +150,15 @@ struct ContentView: View {
                 }
             }
             .accessibilityLabel(identity.isSignedIn ? "Account" : "Sign in")
+
+            AsyncImage(url: Self.channelImageURL) { image in
+                image.resizable().scaledToFill()
+            } placeholder: {
+                Color.fwPanelSoft
+            }
+            .frame(width: 32, height: 32)
+            .clipShape(RoundedRectangle(cornerRadius: 8))
+            .accessibilityLabel("Football channel")
 
             Spacer()
         }

@@ -167,7 +167,12 @@ struct VideosView: View {
         .toolbarBackground(.visible, for: .navigationBar)
         .task { await load(force: false) }
         .sheet(item: $playing) { video in
-            VideoPlayerSheet(video: video)
+            // Done nils the item itself: the environment dismiss inside
+            // the sheet was a no-op in the sim (tapping Done left the
+            // user stuck on the player), so the button clears the
+            // presentation state directly instead of asking for a
+            // dismiss. Swipe-down still works as before.
+            VideoPlayerSheet(video: video, onDone: { playing = nil })
                 .presentationDetents([.large])
         }
     }
@@ -251,7 +256,10 @@ private struct VideoCard: View {
 /// a one-tap copy of the watch link for social distribution.
 struct VideoPlayerSheet: View {
     let video: YouTubeVideo
-    @Environment(\.dismiss) private var dismiss
+    /// Called by Done. Clears the sheet's presentation item in the
+    /// parent (see the sheet call site): relying on the environment
+    /// dismiss here did nothing in the sim.
+    let onDone: () -> Void
     @State private var copied = false
 
     var body: some View {
@@ -320,7 +328,7 @@ struct VideoPlayerSheet: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("Done") { dismiss() }
+                    Button("Done") { onDone() }
                 }
             }
         }

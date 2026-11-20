@@ -77,20 +77,27 @@ struct FeedService {
         return try decoder().decode(T.self, from: data)
     }
 
-    /// The whole feed is the /football channel. No trending tab, no
-    /// keyword search: only casts posted into the channel, under its
-    /// real parent URL (Quilcast's feed/parent_urls, not feed/channels).
-    static func football(limit: Int = 50, viewerFID: FID? = nil) async throws -> [Cast] {
+    /// Casts posted under one parent URL (Quilcast's feed/parent_urls,
+    /// not feed/channels). The /football channel is one such parent URL;
+    /// the live match rooms are others (final-whistle.app/chat/<n>).
+    static func parentURL(_ parentURL: String, limit: Int = 50, viewerFID: FID? = nil) async throws -> [Cast] {
         // Percent-encode the parent URL strictly: ":" and "/" must not
         // survive inside a query value.
         let strict = CharacterSet(charactersIn: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~")
-        guard let encoded = FarcasterMessages.footballChannelURL.addingPercentEncoding(withAllowedCharacters: strict) else {
+        guard let encoded = parentURL.addingPercentEncoding(withAllowedCharacters: strict) else {
             throw URLError(.badURL)
         }
         var path = "/v2/farcaster/feed/parent_urls?parent_urls=\(encoded)&limit=\(limit)"
         if let viewerFID { path += "&viewer_fid=\(viewerFID.value)" }
         let response: ChannelFeedResponse = try await get(path)
         return dedup(response.casts).sorted { $0.timestamp > $1.timestamp }
+    }
+
+    /// The whole feed is the /football channel. No trending tab, no
+    /// keyword search: only casts posted into the channel, under its
+    /// real parent URL.
+    static func football(limit: Int = 50, viewerFID: FID? = nil) async throws -> [Cast] {
+        try await parentURL(FarcasterMessages.footballChannelURL, limit: limit, viewerFID: viewerFID)
     }
 
     /// One cast plus its direct replies, for the thread view.
@@ -131,15 +138,6 @@ struct FeedService {
     static func user(fid: FID) async throws -> UserResponse.User {
         let response: UserResponse = try await get("/v2/farcaster/user?fid=\(fid.value)")
         return response.user
-    }
-
-    /// A user's recent casts, newest first (Quilcast app.tsx userCasts:
-    /// /v2/farcaster/feed/user/casts?fid=&limit=25). Used by the profile
-    /// page a mention tap opens.
-    static func userCasts(fid: FID, limit: Int = 25) async throws -> [Cast] {
-        struct Response: Decodable { let casts: [Cast] }
-        let response: Response = try await get("/v2/farcaster/feed/user/casts?fid=\(fid.value)&limit=\(limit)")
-        return response.casts
     }
 
     static func userCast(hash: String) async throws -> Cast {

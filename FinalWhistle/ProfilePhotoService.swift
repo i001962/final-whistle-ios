@@ -1,18 +1,28 @@
 import Foundation
 import UIKit
 
-/// Hosts a picked profile photo and returns its public URL, so the
-/// URL can go into a UserDataAdd (type 1, pfp) via
-/// IdentityStore.setPFP. A Farcaster pfp is a URL, not an upload —
-/// the image has to live somewhere public first.
+/// Uploads a picked profile photo to Castrater Storage's Final
+/// Whistle pfp endpoint and returns its public URL, so the URL can
+/// go into a UserDataAdd (type 1, pfp) via IdentityStore.setPFP.
+/// The full contract lives in docs/pfp-upload-api.md — this file
+/// implements the app side of it.
 ///
-/// v1 host is catbox.moe: free, no key, anonymous file upload with
-/// direct links. One constant to swap when Final Whistle gets its own
-/// upload endpoint on final-whistle.app — the rest of the flow
-/// (picker → resize → upload → UserDataAdd → refresh) does not care
-/// where the bytes live.
+/// A Farcaster pfp is a URL, not an upload, so the image has to live
+/// somewhere public first. This endpoint is that somewhere: one pfp
+/// per FID, no payment, the operator covers the storage. The API key
+/// identifies the app; the FID's signer signature is what authorizes
+/// an upload for a given FID. The key ships in the build via
+/// Secrets.swift (gitignored, never committed) — see
+/// Secrets.example.swift.
 enum ProfilePhotoService {
-    static let uploadURL = URL(string: "https://catbox.moe/user/api.php")!
+    static let pfpEndpoint = URL(string: "https://storage.castrater.xyz/v1/files/pfp")!
+
+    /// The exact bytes the FID's signer signs: binds the upload to
+    /// one FID and one exact image. The server verifies this against
+    /// the signer public key registered for the FID on Hypersnap.
+    static func signatureMessage(fid: UInt64, sha256Hex: String) -> Data {
+        Data("final-whistle-pfp:\(fid):\(sha256Hex)".utf8)
+    }
 
     /// Square-crop and shrink a picked photo to a 512px JPEG. PFPs are
     /// shown at 32–72px in the app, so 512 is plenty and keeps the
@@ -31,47 +41,72 @@ enum ProfilePhotoService {
         return square.jpegData(compressionQuality: 0.85)
     }
 
-    /// The catbox multipart body, kept pure so the tests can check its
+    /// The pfp multipart body, kept pure so the tests can check its
     /// shape without touching the network.
-    static func multipartBody(jpeg: Data, boundary: String) -> Data {
+    static func pfpMultipartBody(
+        jpeg: Data, fid: UInt64, signerPublicKeyHex: String,
+        sha256Hex: String, signatureHex: String, boundary: String
+    ) -> Data {
         var body = Data()
-        func append(_ string: String) {
-            body.append(Data(string.utf8))
+        func field(_ name: String, _ value: String) {
+            body.append(Data("--\(boundary)\r\n".utf8))
+            body.append(Data("Content-Disposition: form-data; name=\"\(name)\"\r\n\r\n".utf8))
+            body.append(Data("\(value)\r\n".utf8))
         }
-        append("--\(boundary)\r\n")
-        append("Content-Disposition: form-data; name=\"reqtype\"\r\n\r\n")
-        append("fileupload\r\n")
-        append("--\(boundary)\r\n")
-        append("Content-Disposition: form-data; name=\"fileToUpload\"; filename=\"pfp.jpg\"\r\n")
-        append("Content-Type: image/jpeg\r\n\r\n")
+        field("fid", "\(fid)")
+        field("signer_public_key", signerPublicKeyHex)
+        field("sha256", sha256Hex)
+        field("signature", signatureHex)
+        body.append(Data("--\(boundary)\r\n".utf8))
+        body.append(Data("Content-Disposition: form-data; name=\"file\"; filename=\"pfp.jpg\"\r\n".utf8))
+        body.append(Data("Content-Type: image/jpeg\r\n\r\n".utf8))
         body.append(jpeg)
-        append("\r\n--\(boundary)--\r\n")
+        body.append(Data("\r\n--\(boundary)--\r\n".utf8))
         return body
     }
 
-    /// Upload the prepared JPEG. Returns the public file URL.
-    static func upload(jpeg: Data) async throws -> String {
-        var request = URLRequest(url: uploadURL)
+    /// Upload the prepared JPEG as this FID's pfp. Returns the public
+    /// URL, stable per FID.
+    static func uploadPFP(
+        jpeg: Data, fid: UInt64, signerPublicKeyHex: String,
+        sha256Hex: String, signatureHex: String
+    ) async throws -> String {
+        guard !Secrets.pfpAPIKey.isEmpty else { throw UploadError.notConfigured }
+        var request = URLRequest(url: pfpEndpoint)
         request.httpMethod = "POST"
+        request.setValue("Bearer \(Secrets.pfpAPIKey)", forHTTPHeaderField: "Authorization")
         let boundary = "fw-\(UUID().uuidString)"
         request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
         let (data, response) = try await URLSession.shared.upload(
-            for: request, from: multipartBody(jpeg: jpeg, boundary: boundary)
+            for: request,
+            from: pfpMultipartBody(
+                jpeg: jpeg, fid: fid, signerPublicKeyHex: signerPublicKeyHex,
+                sha256Hex: sha256Hex, signatureHex: signatureHex, boundary: boundary
+            )
         )
         guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else {
             throw UploadError.badResponse
         }
-        let url = String(decoding: data, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
-        guard url.hasPrefix("https://") else { throw UploadError.badResponse }
-        return url
+        struct PFPUploadResponse: Decodable {
+            let url: String
+        }
+        guard let decoded = try? JSONDecoder().decode(PFPUploadResponse.self, from: data),
+              decoded.url.hasPrefix("https://") else {
+            throw UploadError.badResponse
+        }
+        return decoded.url
     }
 
     enum UploadError: Error, LocalizedError {
+        case notConfigured
         case badResponse
 
         var errorDescription: String? {
             switch self {
-            case .badResponse: return "The photo upload did not return a link."
+            case .notConfigured:
+                return "Photo upload is not configured yet (no API key in this build)."
+            case .badResponse:
+                return "The photo upload did not return a link."
             }
         }
     }

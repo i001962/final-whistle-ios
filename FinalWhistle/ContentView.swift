@@ -350,7 +350,8 @@ struct ProfileView: View {
         }
     }
 
-    /// Picked photo → square JPEG → hosted URL → UserDataAdd (pfp).
+    /// Picked photo → square JPEG → Castrater pfp upload (signed by
+    /// the FID's signer, one per FID, no payment) → UserDataAdd (pfp).
     /// The picked image shows in the panel immediately; the node
     /// takes a moment to serve it everywhere else.
     private func setPFPFromPicker(_ item: PhotosPickerItem) async {
@@ -363,7 +364,7 @@ struct ProfileView: View {
                 throw PhotoError.badImage
             }
             pickedPreview = image
-            let url = try await ProfilePhotoService.upload(jpeg: jpeg)
+            let url = try await identity.uploadPFP(jpeg: jpeg)
             photoStatus = "Saving to your profile…"
             _ = try await identity.setPFP(url: url)
             photoStatus = "Saved. Your new photo shows up as nodes pick it up."

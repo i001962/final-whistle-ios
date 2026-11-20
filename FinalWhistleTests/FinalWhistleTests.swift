@@ -421,12 +421,23 @@ final class FinalWhistleTests: XCTestCase {
 
     // MARK: - Profile photo upload
 
+    func testPFPSignatureMessage() {
+        let message = ProfilePhotoService.signatureMessage(fid: 4294967327, sha256Hex: "ab12")
+        XCTAssertEqual(String(decoding: message, as: UTF8.self), "final-whistle-pfp:4294967327:ab12")
+    }
+
     func testProfilePhotoMultipartBody() {
         let jpeg = Data([0xFF, 0xD8, 0xFF, 0xE0])
-        let body = ProfilePhotoService.multipartBody(jpeg: jpeg, boundary: "fw-test")
+        let body = ProfilePhotoService.pfpMultipartBody(
+            jpeg: jpeg, fid: 4294967327, signerPublicKeyHex: "11aa",
+            sha256Hex: "ab12", signatureHex: "cc34", boundary: "fw-test"
+        )
         let text = String(decoding: body, as: UTF8.self)
-        XCTAssertTrue(text.contains("name=\"reqtype\"\r\n\r\nfileupload\r\n"))
-        XCTAssertTrue(text.contains("name=\"fileToUpload\"; filename=\"pfp.jpg\""))
+        XCTAssertTrue(text.contains("name=\"fid\"\r\n\r\n4294967327\r\n"))
+        XCTAssertTrue(text.contains("name=\"signer_public_key\"\r\n\r\n11aa\r\n"))
+        XCTAssertTrue(text.contains("name=\"sha256\"\r\n\r\nab12\r\n"))
+        XCTAssertTrue(text.contains("name=\"signature\"\r\n\r\ncc34\r\n"))
+        XCTAssertTrue(text.contains("name=\"file\"; filename=\"pfp.jpg\""))
         XCTAssertTrue(text.contains("Content-Type: image/jpeg"))
         XCTAssertTrue(text.hasSuffix("\r\n--fw-test--\r\n"))
         // The JPEG bytes themselves ride in the body, unescaped.

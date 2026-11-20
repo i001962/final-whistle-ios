@@ -88,6 +88,16 @@ if [ -n "$STASHED" ]; then
 fi
 echo "Pulled $(git rev-parse --short HEAD)."
 
+# Secrets.swift holds the pfp upload API key and is gitignored, so a
+# fresh clone does not have it — but it IS listed in project.pbxproj.
+# Create an empty one from the template so the build never breaks for
+# that reason; pfp upload reports "not configured" until the real key
+# is pasted in. The file is untracked, so it never blocks a pull.
+if [ ! -f FinalWhistle/Secrets.swift ]; then
+  cp FinalWhistle/Secrets.example.swift FinalWhistle/Secrets.swift
+  echo "Created an empty FinalWhistle/Secrets.swift — paste the pfp API key there to enable photo upload." >&2
+fi
+
 # 2. Make sure an iOS simulator runtime exists.
 if ! xcrun simctl list runtimes 2>/dev/null | grep -qi 'iOS.*available'; then
   echo "No iOS simulator runtime found; downloading it (this takes a while)..."

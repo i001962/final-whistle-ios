@@ -23,3 +23,14 @@ That one does need a team, selected once in Xcode under the target's
 Signing & Capabilities, and it installs over the old copy without
 wiping the Keychain (never uninstall the app to fix a problem — that
 erases the stored keys).
+
+## Secrets
+
+`FinalWhistle/Secrets.swift` holds the pfp upload API key and is
+gitignored — copy `Secrets.example.swift` to `Secrets.swift` and
+paste the real key in. `sim.sh` creates an empty one if it is
+missing, so a fresh clone still builds; photo upload reports "not
+configured" until the key is set. The key identifies the app to the
+Castrater pfp endpoint; the FID's signer signature is what
+authorizes an upload for a given FID. The endpoint contract lives
+in `docs/pfp-upload-api.md`.

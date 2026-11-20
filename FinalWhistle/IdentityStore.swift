@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 import os
 
@@ -358,6 +359,26 @@ final class IdentityStore: ObservableObject {
     /// Set the profile picture to a public image URL.
     func setPFP(url: String) async throws -> String {
         try await setUserData(type: 1, value: url)
+    }
+
+    /// Upload a prepared JPEG as this FID's profile picture: hash it,
+    /// sign the binding message with the FID's Ed25519 signer key, and
+    /// upload it to Castrater. Returns the public URL, stable per FID.
+    /// The caller saves that URL with setPFP. See
+    /// docs/pfp-upload-api.md for the endpoint contract.
+    func uploadPFP(jpeg: Data) async throws -> String {
+        guard let fid = record?.fid else { throw IdentityError.notSignedIn }
+        let seed = try signerSeed()
+        let sha256Hex = Data(SHA256.hash(data: jpeg)).hexString
+        let signer = try Ed25519Signer(seed: seed)
+        let signature = try signer.sign(
+            ProfilePhotoService.signatureMessage(fid: fid.value, sha256Hex: sha256Hex)
+        )
+        return try await ProfilePhotoService.uploadPFP(
+            jpeg: jpeg, fid: fid.value,
+            signerPublicKeyHex: signer.publicKey.hexString,
+            sha256Hex: sha256Hex, signatureHex: signature.hexString
+        )
     }
 
     enum IdentityError: Error, LocalizedError {

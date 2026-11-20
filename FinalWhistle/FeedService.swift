@@ -71,7 +71,7 @@ struct FeedService {
     /// feed, so older casts that mention football can appear. Sorted newest first.
     static func football(limit: Int = 20) async throws -> [Cast] {
         let response: SearchFeedResponse = try await get("/v2/farcaster/cast/search?q=football&limit=\(limit)")
-        return dedup(response.casts).sorted { $0.timestamp > $1.timestamp }
+        return dedup(response.result.casts).sorted { $0.timestamp > $1.timestamp }
     }
 
     static func user(fid: FID) async throws -> UserResponse.User {

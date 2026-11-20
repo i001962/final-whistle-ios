@@ -12,8 +12,9 @@ import P256K
 ///   digest via secp256k1_ecdsa_sign_recoverable. Do NOT use the
 ///   `signature(for: Data)` overload: it SHA-256-hashes the input first,
 ///   which is wrong for an EIP-712 digest (already a Keccak hash).
-/// - The digest argument is `P256K.HashDigest` (aka SHA256Digest), whose
-///   public `init(_ output: [UInt8])` accepts ANY 32 bytes, despite the name.
+/// - The digest argument is top-level `HashDigest` (aka SHA256Digest, NOT
+///   `P256K.HashDigest` — no such member), whose public `init(_ output:
+///   [UInt8])` accepts ANY 32 bytes, despite the name.
 /// - The returned signature is 65 bytes: r || s || recoveryId (0...3),
 ///   in `dataRepresentation`. It is NOT guaranteed low-s, so normalise
 ///   with Ethereum.normaliseLowS before use, and use v = recoveryId + 27.
@@ -55,7 +56,7 @@ enum CustodyKeys {
     static func signDigest(_ digest: Data, privateKey: Data) throws -> Data {
         guard digest.count == 32 else { throw KeyError.invalidDigest }
         let key = try P256K.Recovery.PrivateKey(dataRepresentation: privateKey, format: .uncompressed)
-        let hashDigest = try P256K.HashDigest([UInt8](digest))
+        let hashDigest = try HashDigest([UInt8](digest))
         let signature = key.signature(for: hashDigest)
         let bytes = [UInt8](signature.dataRepresentation)
         guard bytes.count == 65 else { throw KeyError.invalidPrivateKey }

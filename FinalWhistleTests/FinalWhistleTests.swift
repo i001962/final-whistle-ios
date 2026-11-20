@@ -418,4 +418,18 @@ final class FinalWhistleTests: XCTestCase {
         XCTAssertEqual(loaded.custodyAddress, "0xabc")
         store.delete()
     }
+
+    // MARK: - Profile photo upload
+
+    func testProfilePhotoMultipartBody() {
+        let jpeg = Data([0xFF, 0xD8, 0xFF, 0xE0])
+        let body = ProfilePhotoService.multipartBody(jpeg: jpeg, boundary: "fw-test")
+        let text = String(decoding: body, as: UTF8.self)
+        XCTAssertTrue(text.contains("name=\"reqtype\"\r\n\r\nfileupload\r\n"))
+        XCTAssertTrue(text.contains("name=\"fileToUpload\"; filename=\"pfp.jpg\""))
+        XCTAssertTrue(text.contains("Content-Type: image/jpeg"))
+        XCTAssertTrue(text.hasSuffix("\r\n--fw-test--\r\n"))
+        // The JPEG bytes themselves ride in the body, unescaped.
+        XCTAssertTrue(body.contains(jpeg))
+    }
 }

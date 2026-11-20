@@ -334,6 +334,32 @@ final class IdentityStore: ObservableObject {
         return try await HypersnapClient.submitSigned(data: data, fid: fid.value, signerSeed: seed)
     }
 
+    /// Set a profile field: a UserDataAdd (type 11) with the field's
+    /// type (1 pfp, 2 display name, 3 bio, 5 website) and its value.
+    /// The pfp value is a public image URL, not an upload — the image
+    /// is hosted first (ProfilePhotoService), then its URL goes here.
+    /// Returns the message hash. The node takes a moment to index the
+    /// new user data, so the profile is refreshed on a short delay;
+    /// until then the panel may still show the old value.
+    func setUserData(type: UInt64, value: String) async throws -> String {
+        guard let fid = record?.fid else { throw IdentityError.notSignedIn }
+        let seed = try signerSeed()
+        let data = FarcasterMessages.userDataAddData(
+            fid: fid.value, timestamp: Date().farcasterEpoch, type: type, value: value
+        )
+        let hash = try await HypersnapClient.submitSigned(data: data, fid: fid.value, signerSeed: seed)
+        Task {
+            try? await Task.sleep(nanoseconds: 2_000_000_000)
+            await refreshProfile()
+        }
+        return hash
+    }
+
+    /// Set the profile picture to a public image URL.
+    func setPFP(url: String) async throws -> String {
+        try await setUserData(type: 1, value: url)
+    }
+
     enum IdentityError: Error, LocalizedError {
         case badSeed
         case badCustody

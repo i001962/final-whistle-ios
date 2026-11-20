@@ -1,4 +1,5 @@
 import SwiftUI
+import PhotosUI
 
 /// Programmatic navigation for taps that can't use a NavigationLink:
 /// an @mention inside a cast's text is an AttributedString link, not a
@@ -229,11 +230,63 @@ struct ProfileView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var confirmingSignOut = false
     @State private var showingOnboarding = false
+    @State private var showingPhotoPicker = false
+    @State private var photoItem: PhotosPickerItem?
+    @State private var pickedPreview: UIImage?
+    @State private var photoStatus: String?
+    @State private var pfpURLField = ""
+    @State private var photoBusy = false
 
     var body: some View {
         NavigationStack {
             List {
                 if let record = identity.record {
+                    Section("Profile photo") {
+                        HStack(spacing: 12) {
+                            if let preview = pickedPreview {
+                                Image(uiImage: preview)
+                                    .resizable()
+                                    .scaledToFill()
+                                    .frame(width: 64, height: 64)
+                                    .clipShape(Circle())
+                            } else if let pfpURL = identity.profile?.pfpURL {
+                                AsyncImage(url: pfpURL) { image in
+                                    image.resizable().scaledToFill()
+                                } placeholder: {
+                                    Color.fwPanelSoft
+                                }
+                                .frame(width: 64, height: 64)
+                                .clipShape(Circle())
+                            } else {
+                                Image(systemName: "person.crop.circle.fill")
+                                    .font(.system(size: 64))
+                                    .foregroundStyle(Color.fwMuted)
+                            }
+
+                            VStack(alignment: .leading, spacing: 4) {
+                                Button("Change photo") { showingPhotoPicker = true }
+                                    .disabled(photoBusy)
+                                Text("A square photo from your library. It is hosted, then set as your Farcaster profile picture.")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                                if let photoStatus {
+                                    Text(photoStatus)
+                                        .font(.caption)
+                                        .foregroundStyle(Color.fwMuted)
+                                }
+                            }
+                        }
+
+                        HStack {
+                            TextField("Or paste an image URL", text: $pfpURLField)
+                                .textInputAutocapitalization(.never)
+                                .autocorrectionDisabled()
+                                .disabled(photoBusy)
+                            Button("Use URL") { Task { await setPFPFromURL() } }
+                                .disabled(photoBusy || pfpURLField.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                        }
+                    }
+
                     Section("Hypersnap identity") {
                         LabeledContent("FID", value: record.fid.description)
                         LabeledContent("Username", value: identity.profile?.username ?? record.fid.fallbackUsername)
@@ -285,6 +338,69 @@ struct ProfileView: View {
             }
             .sheet(isPresented: $showingOnboarding) {
                 OnboardingView()
+            }
+            .photosPicker(isPresented: $showingPhotoPicker, selection: $photoItem, matching: .images)
+            .onChange(of: showingPhotoPicker) { _, shown in
+                // PhotosPickerItem is not Equatable, so the pick is
+                // handled when the picker dismisses instead.
+                if !shown, let item = photoItem {
+                    Task { await setPFPFromPicker(item) }
+                }
+            }
+        }
+    }
+
+    /// Picked photo → square JPEG → hosted URL → UserDataAdd (pfp).
+    /// The picked image shows in the panel immediately; the node
+    /// takes a moment to serve it everywhere else.
+    private func setPFPFromPicker(_ item: PhotosPickerItem) async {
+        photoBusy = true
+        photoStatus = "Uploading photo…"
+        do {
+            guard let data = try await item.loadTransferable(type: Data.self),
+                  let image = UIImage(data: data),
+                  let jpeg = ProfilePhotoService.preparedJPEG(from: image) else {
+                throw PhotoError.badImage
+            }
+            pickedPreview = image
+            let url = try await ProfilePhotoService.upload(jpeg: jpeg)
+            photoStatus = "Saving to your profile…"
+            _ = try await identity.setPFP(url: url)
+            photoStatus = "Saved. Your new photo shows up as nodes pick it up."
+            pfpURLField = ""
+        } catch {
+            photoStatus = "Could not set the photo: \(error.localizedDescription)"
+        }
+        photoBusy = false
+        photoItem = nil
+    }
+
+    /// A pfp the user already has hosted somewhere: its URL goes
+    /// straight into the UserDataAdd, no upload.
+    private func setPFPFromURL() async {
+        let url = pfpURLField.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard url.hasPrefix("https://") else {
+            photoStatus = "That needs to be a full https:// image link."
+            return
+        }
+        photoBusy = true
+        photoStatus = "Saving to your profile…"
+        do {
+            _ = try await identity.setPFP(url: url)
+            photoStatus = "Saved. Your new photo shows up as nodes pick it up."
+            pfpURLField = ""
+        } catch {
+            photoStatus = "Could not set the photo: \(error.localizedDescription)"
+        }
+        photoBusy = false
+    }
+
+    private enum PhotoError: Error, LocalizedError {
+        case badImage
+
+        var errorDescription: String? {
+            switch self {
+            case .badImage: return "That photo could not be read."
             }
         }
     }

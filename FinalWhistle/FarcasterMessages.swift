@@ -16,7 +16,13 @@ enum FarcasterMessages {
     /// /football when CastAddBody carries this as parent_url (field 7).
     /// Without it the cast goes to the global feed and never appears in
     /// the app's feed. Replies carry parent_cast_id instead, never both.
-    static let footballChannelURL = "https://farcaster.xyz/~/channel/football"
+    /// This is the channel's canonical URL from the channel list
+    /// (all-channels-formatted.json, id "football"): the NFT-gated
+    /// fully-qualified address, NOT the farcaster.xyz web URL. The
+    /// casts already in the channel show the web URL as their
+    /// parent_url in Hypersnap's read API, but the channel itself is
+    /// registered under this chain:// address.
+    static let footballChannelURL = "chain://eip155:1/erc721:0x7abfe142031532e1ad0e46f971cc0ef7cf4b98b0"
 
     // MARK: - MessageData envelope
 

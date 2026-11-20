@@ -17,7 +17,8 @@ import os
 /// the channel itself, not a loading bug. The old keyword search
 /// (q=football) was fresher but pulled in casts from everywhere; it is
 /// gone by design. New top-level posts from the app carry parent_url
-/// https://farcaster.xyz/~/channel/football, so they land in this feed.
+/// chain://eip155:1/erc721:0x7abfe142031532e1ad0e46f971cc0ef7cf4b98b0
+/// (the channel's NFT-gated canonical URL), so they land in this feed.
 
 struct FeedService {
     static let baseURL = URL(string: "https://hypersnap.castrater.xyz")!

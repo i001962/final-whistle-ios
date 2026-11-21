@@ -335,7 +335,11 @@ struct ProfileView: View {
                         .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
                     }
                 } else {
-                    Section("Accounts") {
+                    // A title string and a footer cannot be combined
+                    // in one Section call — there is no such overload,
+                    // which is what the three ContentView errors were.
+                    // The title goes in a header closure instead.
+                    Section {
                         ForEach(identity.identities, id: \.fid) { account in
                             AccountRowView(
                                 account: account,
@@ -353,6 +357,8 @@ struct ProfileView: View {
                                 .font(.caption)
                                 .foregroundStyle(Color.fwAccent)
                         }
+                    } header: {
+                        Text("Accounts")
                     } footer: {
                         Text("Tap an account to switch to it. Switching asks for Face ID or your passcode.")
                     }

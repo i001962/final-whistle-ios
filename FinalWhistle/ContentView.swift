@@ -338,9 +338,9 @@ struct ProfileView: View {
                         }
                         LabeledContent("Custody", value: record.custodyAddress)
                         LabeledContent("Signer", value: String(record.signerPublicKeyHex.prefix(16)) + "…")
-                        if let expires = record.signerExpiresAt {
-                            LabeledContent("Signer expires", value: expires.formatted(date: .abbreviated, time: .omitted))
-                        }
+                        Text("The signer is a rolling 30-day window: it renews every time you post, reply, or like, and only expires after 30 days without use.")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
                         Text("The custody key and signer seed are stored only in this phone's Keychain. They are never logged or uploaded — the key is only shown when you ask to back it up.")
                             .font(.footnote)
                             .foregroundStyle(.secondary)

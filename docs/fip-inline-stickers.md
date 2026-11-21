@@ -237,6 +237,46 @@ field on the existing Embed says both "this is an emoji" and "this is
 which one", and it reuses the picture-embed transport every client already
 implements.
 
+## Prior art
+
+Every system has the same three parts — an anchor in the text, an address
+for the image, and a mapping between them. They differ in where the address
+and the mapping live.
+
+- **Discord custom emoji.** The text carries `<:name:id>` (animated:
+  `<a:name:id>`). The ID is the address: the client builds the CDN URL
+  from it with a fixed rule, `https://cdn.discordapp.com/emojis/{id}.png`
+  (`.gif` when animated). No embed, no registry, no manifest — because
+  Discord owns the CDN and the ID-to-URL rule is fixed. The name is only a
+  label; it does not even have to match the emoji's real name. Discord
+  stickers, by contrast, are a separate message component, sent
+  standalone and rendered large — the same emoji/sticker split this FIP
+  adopts.
+- **Slack custom emoji.** The text carries `:name:`, and the client
+  resolves it against the workspace's emoji registry, fetched once from
+  the server and cached. The shortcode is only a name; the address comes
+  from the registry. Our sheet manifest is the same shape, except the
+  registry is per-pack and derived from the sheet URL, because there is
+  no central server to ask.
+- **Telegram custom emoji.** The offset pattern, in production: the
+  message carries a `custom_emoji` entity with an offset and length (in
+  UTF-16 code units) and a `custom_emoji_id`, resolved through the API.
+  It works because Telegram owns the server and the clients, so offsets
+  are never rewritten by a third party. That is the case the FIP's
+  shortcode design is built to survive without.
+- **Emoji and icon fonts.** The self-contained version: a font file maps
+  codepoints to glyph images, so one file is the sheet and the manifest
+  together. Our sheet plus sidecar manifest is the same idea split in
+  two, because the mapping cannot be embedded in an image file reliably
+  (see "Why a sidecar").
+
+The FIP is the federated version of all four. Discord can put the address
+in the text because its CDN rule is fixed; Slack can keep a registry
+because it owns the server; Telegram can use offsets because it owns the
+stack. A federated protocol has none of those, so the address has to
+travel in the message itself — in the embed (single emoji) or in the
+sheet URL plus its manifest (a pack).
+
 ## Non-goals
 
 - Sticker packs, pack discovery, and hosting. This FIP is only about inline

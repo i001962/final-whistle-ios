@@ -309,6 +309,21 @@ final class IdentityStore: ObservableObject {
         return try await HypersnapClient.submitSigned(data: data, fid: fid.value, signerSeed: seed)
     }
 
+    /// Post a sticker into a room: a cast with no text and the sticker
+    /// image as its only embed, parented to the room's URL. Any client
+    /// shows it as a picture; this app draws it bare (see StickerView).
+    func postSticker(url: String, parentURL: String) async throws -> String {
+        guard let fid = record?.fid else { throw IdentityError.notSignedIn }
+        let seed = try signerSeed()
+        let data = FarcasterMessages.castAddData(
+            fid: fid.value, timestamp: Date().farcasterEpoch,
+            text: "", mentions: [], mentionPositions: [],
+            parentAuthorFID: nil, parentHash: nil,
+            parentURL: parentURL, imageURLs: [url]
+        )
+        return try await HypersnapClient.submitSigned(data: data, fid: fid.value, signerSeed: seed)
+    }
+
     /// Reply to a cast. parent_cast_id.fid is the PARENT author's FID.
     func reply(to cast: Cast, text: String) async throws -> String {
         guard let fid = record?.fid else { throw IdentityError.notSignedIn }

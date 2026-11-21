@@ -57,14 +57,22 @@ struct RoomsView: View {
 
 // MARK: - One room: IRC-style chat
 
-/// A room as a group chat: messages oldest-first, a composer at the
-/// bottom, heart to like. Replies are NOT hidden in a thread — every
+/// A room as a group chat: an IRC-style feed, newest at the bottom,
+/// pinned there — the latest message is always visible and older ones
+/// scroll off the top. Replies are NOT hidden in a thread — every
 /// reply shows inline in the feed, iMessage-style, with a small quote
 /// of the message it answers above it. A top-level message posts with
 /// the room as parent_url; a reply posts with parent_cast_id (a real
 /// Farcaster reply, so other clients still see the thread), and the
 /// room loads each top-level cast's conversation and flattens the
-/// whole tree into the one chronological list.
+/// whole tree into the one list.
+///
+/// The pinning is a flipped list, not a scroll-to-bottom call: the
+/// messages are newest-first and the ScrollView is rotated 180°, with
+/// each row rotated back, so the list is anchored at the bottom by
+/// construction and a new message just appears there. A scrollTo call
+/// on a lazy stack can miss on first load (rows not laid out yet) and
+/// fights the user's scroll position on every poll.
 struct RoomView: View {
     let room: ChatRoom
 
@@ -77,58 +85,57 @@ struct RoomView: View {
     @State private var sending = false
     @State private var sendError: String?
     @State private var showingProfile = false
+    @State private var showingStickers = false
     @State private var likedHashes: Set<String> = []
     @FocusState private var composerFocused: Bool
 
     var body: some View {
         VStack(spacing: 0) {
-            ScrollViewReader { proxy in
+            if loading, messages.isEmpty {
+                ProgressView("Loading room…")
+                    .tint(Color.fwLime)
+                    .foregroundStyle(Color.fwMuted)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else if let failed, messages.isEmpty {
+                ContentUnavailableView(
+                    "Room did not load",
+                    systemImage: "wifi.exclamationmark",
+                    description: Text(failed)
+                )
+                .foregroundStyle(Color.fwMuted)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else if messages.isEmpty {
+                ContentUnavailableView(
+                    "No messages yet",
+                    systemImage: "bubble.left.and.bubble.right",
+                    description: Text("Be the first to say something about the match.")
+                )
+                .foregroundStyle(Color.fwMuted)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 16) {
-                        if loading, messages.isEmpty {
-                            ProgressView("Loading room…")
-                                .tint(Color.fwLime)
-                                .foregroundStyle(Color.fwMuted)
-                                .frame(maxWidth: .infinity)
-                                .padding(.top, 24)
-                        } else if let failed, messages.isEmpty {
-                            ContentUnavailableView(
-                                "Room did not load",
-                                systemImage: "wifi.exclamationmark",
-                                description: Text(failed)
+                        ForEach(messages) { cast in
+                            RoomMessageRow(
+                                cast: cast,
+                                parent: parentOf(cast),
+                                liked: isLiked(cast),
+                                onLike: { Task { await toggleLike(cast) } },
+                                onReply: {
+                                    replyingTo = cast
+                                    composerFocused = true
+                                }
                             )
-                            .foregroundStyle(Color.fwMuted)
-                        } else if messages.isEmpty {
-                            ContentUnavailableView(
-                                "No messages yet",
-                                systemImage: "bubble.left.and.bubble.right",
-                                description: Text("Be the first to say something about the match.")
-                            )
-                            .foregroundStyle(Color.fwMuted)
-                        } else {
-                            ForEach(messages) { cast in
-                                RoomMessageRow(
-                                    cast: cast,
-                                    parent: parentOf(cast),
-                                    liked: isLiked(cast),
-                                    likesCount: likesCount(for: cast),
-                                    onLike: { Task { await toggleLike(cast) } },
-                                    onReply: {
-                                        replyingTo = cast
-                                        composerFocused = true
-                                    }
-                                )
-                                .id(cast.hash)
-                            }
+                            // Each row turns back upright inside the
+                            // flipped list; the first row in the data
+                            // (newest) sits at the visual bottom.
+                            .rotationEffect(.degrees(180))
                         }
                     }
                     .padding(.horizontal, 16)
                     .padding(.vertical, 12)
                 }
-                .refreshable { await load() }
-                .onChange(of: messages.count) {
-                    scrollToBottom(proxy)
-                }
+                .rotationEffect(.degrees(180))
             }
 
             composer
@@ -150,12 +157,10 @@ struct RoomView: View {
         .sheet(isPresented: $showingProfile) {
             ProfileView()
         }
-    }
-
-    private func scrollToBottom(_ proxy: ScrollViewProxy) {
-        guard let last = messages.last else { return }
-        withAnimation {
-            proxy.scrollTo(last.hash, anchor: .bottom)
+        .sheet(isPresented: $showingStickers) {
+            StickerPickerSheet { url in
+                Task { await sendSticker(url) }
+            }
         }
     }
 
@@ -183,7 +188,10 @@ struct RoomView: View {
                 }
             }
             let deduped = FeedService.dedup(all)
-            messages = deduped.sorted { $0.timestamp < $1.timestamp }
+            // Newest-first: the flipped list shows the first row at
+            // the visual bottom, so the latest message is the one
+            // pinned there.
+            messages = deduped.sorted { $0.timestamp > $1.timestamp }
             likedHashes = Set(deduped.filter { $0.viewerContext?.liked == true }.map { $0.hash.lowercased() })
         } catch {
             failed = error.localizedDescription
@@ -215,16 +223,6 @@ struct RoomView: View {
     }
 
     private func isLiked(_ cast: Cast) -> Bool { likedHashes.contains(cast.hash.lowercased()) }
-
-    /// Server count, adjusted for a tap the server has not caught up
-    /// with yet — the same adjustment FeedStore makes for the feed.
-    private func likesCount(for cast: Cast) -> Int {
-        let base = cast.reactions.likesCount
-        let serverSaysLiked = cast.viewerContext?.liked ?? false
-        if isLiked(cast) && !serverSaysLiked { return base + 1 }
-        if !isLiked(cast) && serverSaysLiked { return max(0, base - 1) }
-        return base
-    }
 
     private func toggleLike(_ cast: Cast) async {
         guard identity.isSignedIn else { showingProfile = true; return }
@@ -265,6 +263,15 @@ struct RoomView: View {
             }
 
             HStack(spacing: 10) {
+                Button {
+                    showingStickers = true
+                } label: {
+                    Image(systemName: "face.smiling")
+                        .font(.title2)
+                        .foregroundStyle(Color.fwMuted)
+                }
+                .accessibilityLabel("Stickers")
+
                 TextField("Message the room…", text: $draft, axis: .vertical)
                     .focused($composerFocused)
                     .lineLimit(1...4)
@@ -323,6 +330,22 @@ struct RoomView: View {
         sending = false
     }
 
+    /// Send a sticker: a cast with no text and the sticker image as
+    /// its only embed. Same wait-for-it-to-land flow as send().
+    private func sendSticker(_ url: String) async {
+        guard identity.isSignedIn else { showingProfile = true; return }
+        guard !sending else { return }
+        sending = true
+        sendError = nil
+        do {
+            let hash = try await identity.postSticker(url: url, parentURL: room.parentURL)
+            await reloadUntilVisible(hash: hash)
+        } catch {
+            sendError = error.localizedDescription
+        }
+        sending = false
+    }
+
     /// The node takes a moment to index a new cast into the parent_urls
     /// feed — the reload right after submit usually returns before it
     /// lands, so the message looks lost even though it posted fine
@@ -340,16 +363,16 @@ struct RoomView: View {
     }
 }
 
-/// One message in the room: pfp, name, time, text with mentions put
-/// back, then like and reply. A reply carries a small quote of the
-/// message it answers above its own text, iMessage-style — nothing
-/// hides behind a "replies" link.
+/// One message in the room: pfp, username, time, text with mentions
+/// put back, then its embeds (a sticker bare, a photo framed). Reply
+/// and like live on a long press, not on the row. A reply carries a
+/// small quote of the message it answers above its own text,
+/// iMessage-style — nothing hides behind a "replies" link.
 private struct RoomMessageRow: View {
     let cast: Cast
     /// The message this one answers, if it is a reply.
     let parent: Cast?
     let liked: Bool
-    let likesCount: Int
     let onLike: () -> Void
     let onReply: () -> Void
 
@@ -372,7 +395,9 @@ private struct RoomMessageRow: View {
 
             VStack(alignment: .leading, spacing: 3) {
                 HStack(spacing: 6) {
-                    Text(cast.author.displayName ?? cast.author.username ?? "fid:\(cast.author.fid.value)")
+                    // The username, not the display name: a display name
+                    // can say anything, the username is who it is.
+                    Text(cast.author.username ?? "fid:\(cast.author.fid.value)")
                         .font(.subheadline)
                         .fontWeight(.semibold)
                         .foregroundStyle(Color.fwText)
@@ -406,28 +431,20 @@ private struct RoomMessageRow: View {
                     .font(.subheadline)
                     .foregroundStyle(Color.fwText)
 
-                HStack(spacing: 16) {
-                    Button(action: onLike) {
-                        HStack(spacing: 4) {
-                            Image(systemName: liked ? "heart.fill" : "heart")
-                            if likesCount > 0 { Text("\(likesCount)") }
-                        }
-                        .font(.caption)
-                        .foregroundStyle(liked ? Color.fwAccent : Color.fwMuted)
-                    }
-                    .accessibilityLabel(liked ? "Unlike" : "Like")
-
-                    Button(action: onReply) {
-                        HStack(spacing: 4) {
-                            Image(systemName: "arrowshape.turn.up.left")
-                            Text("Reply")
-                        }
-                        .font(.caption)
-                        .foregroundStyle(Color.fwMuted)
-                    }
-                    .accessibilityLabel("Reply to this message")
-                }
-                .padding(.top, 2)
+                // Embeds: a sticker draws bare, a photo framed
+                // (CastEmbedsView splits them). A sticker-only message
+                // has no text, so this is the whole message.
+                CastEmbedsView(cast: cast, onOpenQuote: nil)
+            }
+        }
+        // Reply and like live on a long press, not on the row: the
+        // row is just who said it, when, and what they said.
+        .contextMenu {
+            Button(action: onReply) {
+                Label("Reply", systemImage: "arrowshape.turn.up.left")
+            }
+            Button(action: onLike) {
+                Label(liked ? "Unlike" : "Like", systemImage: liked ? "heart.fill" : "heart")
             }
         }
     }

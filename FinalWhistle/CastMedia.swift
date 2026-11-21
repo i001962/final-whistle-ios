@@ -64,13 +64,20 @@ struct CastEmbedsView: View {
     let onOpenQuote: ((Cast) -> Void)?
     @State private var fullscreenImage: FullscreenImageItem?
 
-    private var images: [URL] { cast.imageEmbedURLs }
+    /// Sticker embeds render bare (see StickerView); the rest of the
+    /// pictures keep the framed photo layout.
+    private var stickers: [URL] { cast.imageEmbedURLs.filter(StickerStore.shared.isSticker) }
+    private var images: [URL] { cast.imageEmbedURLs.filter { !StickerStore.shared.isSticker($0) } }
     private var videos: [URL] { cast.videoEmbedURLs }
     private var links: [URL] { cast.linkEmbedURLs }
     private var quotes: [CastEmbed.CastIDRef] { cast.quotedCasts }
 
     var body: some View {
         Group {
+            ForEach(stickers, id: \.self) { url in
+                StickerView(url: url)
+            }
+
             if images.count + videos.count > 1 {
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 8) {

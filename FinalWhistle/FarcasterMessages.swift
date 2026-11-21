@@ -121,7 +121,8 @@ enum FarcasterMessages {
     static func castAddBody(
         text: String, mentions: [UInt64], mentionPositions: [UInt32],
         parentAuthorFID: UInt64?, parentHash: Data?, parentURL: String? = nil,
-        quotedCasts: [(fid: UInt64, hash: Data)] = []
+        quotedCasts: [(fid: UInt64, hash: Data)] = [],
+        imageURLs: [String] = []
     ) -> Data {
         var out = Data()
         out.append(Protobuf.packedVarintField(2, mentions))
@@ -141,6 +142,14 @@ enum FarcasterMessages {
             embed.append(Protobuf.bytesField(2, castId))
             out.append(Protobuf.bytesField(6, embed))
         }
+        // A picture embed is Embed field 1 = the URL string (Quilcast's
+        // fc.ts castBody builds these the same way). A sticker goes out
+        // as one of these with no text.
+        for url in imageURLs {
+            var embed = Data()
+            embed.append(Protobuf.stringField(1, url))
+            out.append(Protobuf.bytesField(6, embed))
+        }
         if let parentURL {
             out.append(Protobuf.stringField(7, parentURL))
         }
@@ -153,12 +162,13 @@ enum FarcasterMessages {
         fid: UInt64, timestamp: UInt32,
         text: String, mentions: [UInt64], mentionPositions: [UInt32],
         parentAuthorFID: UInt64?, parentHash: Data?, parentURL: String? = nil,
-        quotedCasts: [(fid: UInt64, hash: Data)] = []
+        quotedCasts: [(fid: UInt64, hash: Data)] = [],
+        imageURLs: [String] = []
     ) -> Data {
         let body = castAddBody(
             text: text, mentions: mentions, mentionPositions: mentionPositions,
             parentAuthorFID: parentAuthorFID, parentHash: parentHash,
-            parentURL: parentURL, quotedCasts: quotedCasts
+            parentURL: parentURL, quotedCasts: quotedCasts, imageURLs: imageURLs
         )
         return messageData(type: 1, fid: fid, timestamp: timestamp, bodyField: 5, body: body)
     }

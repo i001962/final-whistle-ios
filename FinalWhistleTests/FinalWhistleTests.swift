@@ -74,6 +74,38 @@ final class FinalWhistleTests: XCTestCase {
         XCTAssertTrue(body.hexString.contains(FarcasterMessages.footballChannelURL.utf8.map { String(format: "%02x", $0) }.joined()))
     }
 
+    func testCastAddBodyImageEmbed() {
+        // A picture embed is Embed field 6, with the URL inside as
+        // Embed field 1 (Quilcast's fc.ts castBody). A sticker goes out
+        // as one of these with no text.
+        let url = "https://final-whistle.app/st/abcdefgh/0123456789abcdef01234567.webp"
+        let body = FarcasterMessages.castAddBody(
+            text: "", mentions: [], mentionPositions: [],
+            parentAuthorFID: nil, parentHash: nil,
+            parentURL: FarcasterMessages.footballChannelURL,
+            imageURLs: [url]
+        )
+        let urlBytes = Array(url.utf8)
+        var embed = Data()
+        embed.append(contentsOf: [0x0A, UInt8(urlBytes.count)])
+        embed.append(contentsOf: urlBytes)
+        var field = Data()
+        field.append(contentsOf: [0x32, UInt8(embed.count)])
+        field.append(embed)
+        XCTAssertTrue(body.hexString.contains(field.hexString))
+    }
+
+    func testStickerURLPattern() {
+        // Hosted-pack shape, Quilcast's stickerPack check with our host.
+        let hosted = URL(string: "https://final-whistle.app/st/abcdefgh/0123456789abcdef01234567.webp")!
+        XCTAssertTrue(StickerStore.shared.isSticker(hosted))
+        let photo = URL(string: "https://example.com/photo.jpg")!
+        XCTAssertFalse(StickerStore.shared.isSticker(photo))
+        // And a pack member counts even off our host.
+        XCTAssertTrue(StickerStore.shared.addSticker(url: "https://example.com/sticker.png"))
+        XCTAssertTrue(StickerStore.shared.isSticker(URL(string: "https://example.com/sticker.png")!))
+    }
+
     func testFeedDecodesViewerContextAndEmbeds() throws {
         let json = """
         {"casts": [{"object": "cast", "hash": "aa", "text": "quoted", "timestamp": "2026-11-20T19:17:43.000Z",

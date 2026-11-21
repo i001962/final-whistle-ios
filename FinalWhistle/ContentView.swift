@@ -540,8 +540,17 @@ struct ProfileView: View {
                         .foregroundStyle(.secondary)
                 }
                 HStack {
-                    Button(identity.isAuthorized ? "Re-authorize" : "Authorize Final Whistle") { Task { await authorizeApp() } }
-                        .disabled(authorizeBusy)
+                    // Two separate Buttons with literal titles: a ternary
+                    // in the title makes the Button overload ambiguous
+                    // (String vs LocalizedStringKey) and the compiler
+                    // cannot pick one.
+                    if identity.isAuthorized {
+                        Button("Re-authorize") { Task { await authorizeApp() } }
+                            .disabled(authorizeBusy)
+                    } else {
+                        Button("Authorize Final Whistle") { Task { await authorizeApp() } }
+                            .disabled(authorizeBusy)
+                    }
                     if authorizeBusy {
                         ProgressView()
                     }

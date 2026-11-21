@@ -373,7 +373,10 @@ final class IdentityStore: ObservableObject {
     /// expired after 30 days without use. Returns the new signer seed and
     /// public key hex.
     private func renewSigner(fid: UInt64, custodyAddress: String, custodyKey: Data) async throws -> (seed: Data, publicKeyHex: String) {
-        guard Data(hex: custodyAddress) != nil else { throw IdentityError.badCustody }
+        // `guard let _ =` pins the failable Data.init?(hex:) — a bare
+        // Data(hex:) is ambiguous with a non-failable hex init in the
+        // module (CryptoSwift), and the compiler cannot pick one.
+        guard let _ = Data(hex: custodyAddress) else { throw IdentityError.badCustody }
         let signer = Ed25519Signer()
         let info = try await HypersnapClient.signersByFID(fid)
         try await addSigner(
@@ -477,7 +480,10 @@ final class IdentityStore: ObservableObject {
         }
         do {
             let info = try await HypersnapClient.signersByFID(record.fid.value)
-            let publicKey = Data(hex: record.signerPublicKeyHex)
+            // Explicit Data? pins the failable Data.init?(hex:) — a bare
+            // Data(hex:) is ambiguous with a non-failable hex init in
+            // the module (CryptoSwift), and the compiler cannot pick one.
+            let publicKey: Data? = Data(hex: record.signerPublicKeyHex)
             let match = info.signers.first { $0.publicKey == publicKey }
             isAuthorized = match != nil
             authorizationExpiresAt = match?.expiresAt

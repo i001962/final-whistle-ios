@@ -106,7 +106,10 @@ struct StickerView: View {
                 EmptyView()
             }
         }
-        .frame(maxWidth: 160, maxHeight: 160, alignment: .leading)
+        // IRC-scale, not a poster: 96pt is a big emoji, visible
+        // without taking over the chat. 160pt filled the viewport
+        // height on a sticker-only message.
+        .frame(maxWidth: 96, maxHeight: 96, alignment: .leading)
     }
 }
 

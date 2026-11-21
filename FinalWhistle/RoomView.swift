@@ -130,15 +130,6 @@ struct RoomView: View {
                             // flipped list; the first row in the data
                             // (newest) sits at the visual bottom.
                             .rotationEffect(.degrees(180))
-                            // Full width, or the flip betrays the row:
-                            // a 180° rotation maps a row's left edge to
-                            // W - width, so a row only as wide as its
-                            // text sits further right the shorter the
-                            // message is — a progressive indent that
-                            // reads as a nested reply. Every row must
-                            // be exactly the stack's width to land on
-                            // the same left edge.
-                            .frame(maxWidth: .infinity, alignment: .leading)
                         }
                     }
                     .padding(.horizontal, 16)
@@ -450,6 +441,16 @@ private struct RoomMessageRow: View {
                 CastEmbedsView(cast: cast, onOpenQuote: nil)
             }
         }
+        // Full width — and it has to be HERE, inside the row, not on
+        // the row from outside. The list is flipped 180°, so a row's
+        // visual left edge is W - width: a row only as wide as its
+        // text sits further right the shorter the message is, a
+        // progressive indent that reads as a nested reply. A frame
+        // put on the row from the ForEach only widens an invisible
+        // wrapper around the rotated row; the visible content stays
+        // narrow and stays shifted. The row's own width must be full
+        // for the double rotation to land it on the left edge.
+        .frame(maxWidth: .infinity, alignment: .leading)
         // Reply and like live on a long press, not on the row: the
         // row is just who said it, when, and what they said.
         .contextMenu {

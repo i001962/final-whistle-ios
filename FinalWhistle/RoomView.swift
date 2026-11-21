@@ -162,6 +162,11 @@ struct RoomView: View {
         }
         .sheet(isPresented: $showingStickers) {
             StickerPickerSheet { url in
+                // Close the panel first, so the user is back on the
+                // chat feed while the sticker sends. The picker's own
+                // dismiss() was not reliably closing the sheet, so
+                // the parent owns the dismissal by clearing the flag.
+                showingStickers = false
                 Task { await sendSticker(url) }
             }
         }

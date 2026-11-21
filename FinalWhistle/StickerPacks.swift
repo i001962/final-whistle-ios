@@ -22,6 +22,11 @@ import SwiftUI
 struct Sticker: Codable, Hashable {
     let url: String
     let label: String
+    /// How often the user has sent this sticker, and when they last
+    /// did. Old saved packs have neither field, so both default and
+    /// the old JSON still decodes.
+    var useCount: Int = 0
+    var lastUsedAt: Date? = nil
 }
 
 struct StickerPack: Codable, Hashable, Identifiable {
@@ -85,6 +90,53 @@ final class StickerStore: ObservableObject {
         try? store.save(packs)
         return true
     }
+
+    /// Record that a sticker was sent. The picker calls this when a
+    /// sticker is tapped, so the counts track what the user actually
+    /// reaches for, not what they added.
+    func recordUse(url: String) {
+        for packIndex in packs.indices {
+            if let stickerIndex = packs[packIndex].stickers.firstIndex(where: { $0.url == url }) {
+                packs[packIndex].stickers[stickerIndex].useCount += 1
+                packs[packIndex].stickers[stickerIndex].lastUsedAt = Date()
+                try? store.save(packs)
+                return
+            }
+        }
+    }
+
+    /// Remove a sticker from every pack that has it.
+    func removeSticker(url: String) {
+        for packIndex in packs.indices {
+            packs[packIndex].stickers.removeAll { $0.url == url }
+        }
+        try? store.save(packs)
+    }
+
+    /// Reorder "My stickers" (the pack the user curates). Called by
+    /// the Manage screen's List onMove.
+    func moveSticker(fromOffsets: IndexSet, toOffset: Int) {
+        guard !packs.isEmpty else { return }
+        packs[0].stickers.move(fromOffsets: fromOffsets, toOffset: toOffset)
+        try? store.save(packs)
+    }
+
+    /// Reorder "My stickers" by what the user actually sends: most
+    /// sent first, then most recently sent. Stickers never sent keep
+    /// their added order at the end.
+    func sortByMostUsed() {
+        guard !packs.isEmpty else { return }
+        packs[0].stickers.sort { a, b in
+            if a.useCount != b.useCount { return a.useCount > b.useCount }
+            switch (a.lastUsedAt, b.lastUsedAt) {
+            case let (x?, y?): return x > y
+            case (_?, nil): return true
+            case (nil, _?): return false
+            case (nil, nil): return false
+            }
+        }
+        try? store.save(packs)
+    }
 }
 
 /// A sticker as it is, with no frame (Quilcast's ui.tsx Sticker):
@@ -142,8 +194,15 @@ struct StickerPickerSheet: View {
                         LazyVGrid(columns: [GridItem(.adaptive(minimum: 72))], spacing: 12) {
                             ForEach(allStickers, id: \.url) { sticker in
                                 Button {
+                                    // Record the use first, so the
+                                    // counts track what the user
+                                    // actually reaches for. The parent
+                                    // (RoomView) closes the panel when
+                                    // onPick fires, so the user lands
+                                    // back on the chat feed while the
+                                    // sticker sends.
+                                    store.recordUse(url: sticker.url)
                                     onPick(sticker.url)
-                                    dismiss()
                                 } label: {
                                     AsyncImage(url: URL(string: sticker.url)) { phase in
                                         switch phase {
@@ -164,6 +223,12 @@ struct StickerPickerSheet: View {
                             }
                         }
                     }
+                }
+
+                NavigationLink {
+                    ManageStickersView()
+                } label: {
+                    Label("Manage stickers", systemImage: "slider.horizontal.3")
                 }
 
                 HStack(spacing: 8) {
@@ -192,7 +257,9 @@ struct StickerPickerSheet: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { dismiss() }
+                    Button { dismiss() } label: {
+                        Label("Back", systemImage: "chevron.left")
+                    }
                 }
             }
         }
@@ -252,5 +319,88 @@ struct StickerPickerSheet: View {
               let http = response as? HTTPURLResponse,
               let mime = http.mimeType, mime.hasPrefix("image/") else { return false }
         return true
+    }
+}
+
+/// Manage "My stickers": delete and reorder, and one tap to sort by
+/// what the user actually sends most. Reached from the picker's
+/// "Manage stickers" row. The order here is the order in the picker.
+private struct ManageStickersView: View {
+    @ObservedObject private var store = StickerStore.shared
+
+    private var stickers: [Sticker] {
+        store.packs.isEmpty ? [] : store.packs[0].stickers
+    }
+
+    var body: some View {
+        List {
+            Section {
+                if stickers.isEmpty {
+                    Text("No stickers yet.")
+                        .foregroundStyle(Color.fwMuted)
+                } else {
+                    ForEach(stickers, id: \.url) { sticker in
+                        HStack(spacing: 12) {
+                            AsyncImage(url: URL(string: sticker.url)) { phase in
+                                switch phase {
+                                case .success(let image):
+                                    image.resizable().scaledToFit()
+                                case .failure:
+                                    Image(systemName: "photo")
+                                        .foregroundStyle(Color.fwMuted)
+                                case .empty:
+                                    ProgressView().tint(Color.fwLime)
+                                @unknown default:
+                                    EmptyView()
+                                }
+                            }
+                            .frame(width: 48, height: 48)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(sticker.label)
+                                    .font(.subheadline)
+                                    .foregroundStyle(Color.fwText)
+                                if sticker.useCount > 0 {
+                                    Text("Sent \(sticker.useCount) time\(sticker.useCount == 1 ? "" : "s")")
+                                        .font(.caption)
+                                        .foregroundStyle(Color.fwMuted)
+                                } else {
+                                    Text("Not sent yet")
+                                        .font(.caption)
+                                        .foregroundStyle(Color.fwMuted)
+                                }
+                            }
+                        }
+                    }
+                    .onDelete { offsets in
+                        let urls = offsets.map { stickers[$0].url }
+                        for url in urls {
+                            store.removeSticker(url: url)
+                        }
+                    }
+                    .onMove { from, to in
+                        store.moveSticker(fromOffsets: from, toOffset: to)
+                    }
+                }
+            } header: {
+                Text("My stickers")
+            } footer: {
+                Text("Drag to reorder. Swipe left to delete. The order here is the order in the picker.")
+            }
+
+            Section {
+                Button("Sort by most used") {
+                    store.sortByMostUsed()
+                }
+            } footer: {
+                Text("Puts the stickers you send most at the top.")
+            }
+        }
+        .scrollContentBackground(.hidden)
+        .background(Color.fwBackground)
+        .navigationTitle("Manage stickers")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            EditButton()
+        }
     }
 }

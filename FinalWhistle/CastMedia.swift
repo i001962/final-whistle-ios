@@ -31,15 +31,19 @@ enum CastMedia {
 }
 
 extension Cast {
-    /// The embed URLs worth rendering (Quilcast urlsOf): the embeds' URLs,
-    /// less any the text already shows — a YouTube link pasted in the text
-    /// AND embedded would otherwise show twice, once as a tappable link
-    /// and once as a card.
+    /// The embed URLs worth rendering (Quilcast urlsOf). An image or video
+    /// embed is dropped when the text already shows its URL — the card IS
+    /// the same media, so it would just duplicate it. A link embed is NOT
+    /// dropped: its preview card (thumbnail + title) is information the
+    /// bare text link does not carry, so a YouTube URL pasted in the text
+    /// AND embedded still gets its thumbnail card. Dropping it left the
+    /// cast with only an orange text link and no thumbnail at all.
     var embedURLs: [URL] {
         guard let embeds else { return [] }
         return embeds.compactMap { embed -> URL? in
-            guard let raw = embed.url, !text.contains(raw) else { return nil }
-            return URL(string: raw)
+            guard let raw = embed.url, let url = URL(string: raw) else { return nil }
+            if text.contains(raw) && (CastMedia.isImageURL(url) || CastMedia.isVideoURL(url)) { return nil }
+            return url
         }
     }
 

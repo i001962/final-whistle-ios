@@ -130,6 +130,15 @@ struct RoomView: View {
                             // flipped list; the first row in the data
                             // (newest) sits at the visual bottom.
                             .rotationEffect(.degrees(180))
+                            // Full width, or the flip betrays the row:
+                            // a 180° rotation maps a row's left edge to
+                            // W - width, so a row only as wide as its
+                            // text sits further right the shorter the
+                            // message is — a progressive indent that
+                            // reads as a nested reply. Every row must
+                            // be exactly the stack's width to land on
+                            // the same left edge.
+                            .frame(maxWidth: .infinity, alignment: .leading)
                         }
                     }
                     .padding(.horizontal, 16)

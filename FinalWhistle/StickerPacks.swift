@@ -31,7 +31,12 @@ struct StickerPack: Codable, Hashable, Identifiable {
 }
 
 final class StickerStore: ObservableObject {
-    static let shared = StickerStore()
+    /// Swift 6: a static shared instance of a non-Sendable
+    /// ObservableObject is a compile error without this. The store is
+    /// only ever touched from the main actor (SwiftUI views and the
+    /// picker), so the opt-out is safe; it is not accessed from
+    /// background tasks.
+    nonisolated(unsafe) static let shared = StickerStore()
 
     @Published private(set) var packs: [StickerPack] = []
 

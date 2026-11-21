@@ -72,29 +72,26 @@ struct ContentView: View {
         VStack(spacing: 0) {
             topBar
 
-            NavigationStack(path: $router.path) {
-                Group {
-                    switch selectedTab {
-                    case .feed:
-                        FeedView()
-                            .toolbar(.hidden, for: .navigationBar)
-                    case .videos:
-                        VideosView()
-                            .toolbar(.hidden, for: .navigationBar)
-                    case .rooms:
-                        RoomsView()
-                            .toolbar(.hidden, for: .navigationBar)
-                    case .fantasy:
-                        ComingSoonView(
-                            icon: "star",
-                            title: "Fantasy",
-                            text: "Your FPL mini leagues will live here, signed in with your Final Whistle account."
-                        )
-                        .toolbar(.hidden, for: .navigationBar)
-                    }
-                }
-                .navigationDestination(for: FID.self) { fid in
-                    UserProfileView(fid: fid)
+            // One NavigationStack per tab, not one stack with a
+            // switched root: switching the root inside a stack while
+            // a destination is pushed leaves the pushed view on
+            // screen with an empty path — no back chevron, and tabs
+            // that highlight but change nothing. Each tab owns its
+            // stack, so the stack and the path can never disagree.
+            switch selectedTab {
+            case .feed:
+                tabStack { FeedView() }
+            case .videos:
+                tabStack { VideosView() }
+            case .rooms:
+                tabStack { RoomsView() }
+            case .fantasy:
+                tabStack {
+                    ComingSoonView(
+                        icon: "star",
+                        title: "Fantasy",
+                        text: "Your FPL mini leagues will live here, signed in with your Final Whistle account."
+                    )
                 }
             }
 
@@ -169,15 +166,27 @@ struct ContentView: View {
         .padding(.vertical, 8)
     }
 
+    /// One tab's NavigationStack, bound to the shared router path.
+    /// Profiles (from @mentions) can be pushed from any tab, so the
+    /// FID destination lives here; threads register their own Cast
+    /// destination inside FeedView/ThreadView.
+    @ViewBuilder
+    private func tabStack<Root: View>(@ViewBuilder root: () -> Root) -> some View {
+        NavigationStack(path: $router.path) {
+            root()
+                .toolbar(.hidden, for: .navigationBar)
+                .navigationDestination(for: FID.self) { fid in
+                    UserProfileView(fid: fid)
+                }
+        }
+    }
+
     /// Footy-style floating tab bar. Switching tabs pops any open
     /// thread first, so you always land on the section's top.
     ///
-    /// Two things that used to break this from inside a room: the
-    /// composer's keyboard sits over the footer, so the tap landed on
-    /// the keyboard and nothing happened; and switching the stack's
-    /// root while a destination is still pushed can leave the pushed
-    /// view on screen, so the pop lands first and the tab switch
-    /// follows on the next turn.
+    /// Tapping a tab from inside a room also dismisses the composer's
+    /// keyboard first — it sits over the footer, so the tap landed
+    /// on the keyboard and nothing happened.
     private var tabBar: some View {
         HStack(spacing: 0) {
             ForEach(AppTab.allCases, id: \.self) { tab in
@@ -187,7 +196,7 @@ struct ContentView: View {
                         to: nil, from: nil, for: nil
                     )
                     router.path = NavigationPath()
-                    Task { @MainActor in selectedTab = tab }
+                    selectedTab = tab
                 } label: {
                     VStack(spacing: 3) {
                         Image(systemName: tab.icon)

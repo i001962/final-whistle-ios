@@ -31,9 +31,11 @@ struct RoomsView: View {
         List {
             Section {
                 ForEach(ChatRoom.all) { room in
-                    NavigationLink {
-                        RoomView(room: room)
-                    } label: {
+                    // Value-based: the room is part of the router
+                    // path, so clearing the path pops back to this
+                    // directory. A destination-based link can leave
+                    // the room on screen with an empty path.
+                    NavigationLink(value: room) {
                         HStack(spacing: 12) {
                             Image(systemName: "bubble.left.and.bubble.right.fill")
                                 .font(.title3)
@@ -59,6 +61,9 @@ struct RoomsView: View {
         }
         .scrollContentBackground(.hidden)
         .background(Color.fwBackground)
+        .navigationDestination(for: ChatRoom.self) { room in
+            RoomView(room: room)
+        }
     }
 }
 

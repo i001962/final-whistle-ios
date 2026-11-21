@@ -254,6 +254,10 @@ struct ProfileView: View {
     // switch error, shown as text only in the Accounts section.
     @State private var switchingFID: UInt64?
     @State private var switchError: String?
+    // Authorizing Final Whistle: whether a renewal is running, and the
+    // last authorize error, shown as text only in that section.
+    @State private var authorizeBusy = false
+    @State private var authorizeError: String?
     // Error text only — the panel says nothing while a save is
     // running or after it succeeds. A stale error clears when a new
     // attempt starts.
@@ -408,6 +412,48 @@ struct ProfileView: View {
                             .foregroundStyle(.secondary)
                     }
 
+                    Section("Final Whistle authorization") {
+                        if !identity.authorizationChecked {
+                            HStack {
+                                Text("Checking authorization…")
+                                    .font(.footnote)
+                                    .foregroundStyle(.secondary)
+                                Spacer()
+                                ProgressView()
+                            }
+                        } else {
+                            if identity.isAuthorized {
+                                Text("Final Whistle can post, reply, like, and recast as this account.")
+                                    .font(.footnote)
+                                    .foregroundStyle(.secondary)
+                                if let expires = identity.authorizationExpiresAt {
+                                    LabeledContent("Expires if unused", value: expires.formatted(date: .abbreviated, time: .omitted))
+                                }
+                            } else {
+                                Text("Final Whistle is not authorized to post as this account. Authorizing makes a fresh signer for the app, good for a 30-day window that renews every time you post.")
+                                    .font(.footnote)
+                                    .foregroundStyle(.secondary)
+                            }
+                            HStack {
+                                Button(identity.isAuthorized ? "Re-authorize" : "Authorize Final Whistle") { Task { await authorizeApp() } }
+                                    .disabled(authorizeBusy)
+                                if authorizeBusy {
+                                    ProgressView()
+                                }
+                            }
+                            if let authorizeError {
+                                Text(authorizeError)
+                                    .font(.caption)
+                                    .foregroundStyle(Color.fwAccent)
+                            }
+                        }
+                        if let authError = identity.authorizationError {
+                            Text("Could not check the authorization: \(authError)")
+                                .font(.caption)
+                                .foregroundStyle(Color.fwAccent)
+                        }
+                    }
+
                     // A title string and a footer cannot be combined
                     // in one Section call — there is no such overload,
                     // which is what the three build errors were. The
@@ -476,6 +522,28 @@ struct ProfileView: View {
             .sheet(isPresented: $showingOnboarding) {
                 OnboardingView()
             }
+            .task {
+                // Check the active account's authorization on the node
+                // when the panel opens, so the section shows the real
+                // status instead of a stale local date.
+                await identity.refreshAuthorization()
+            }
+        }
+    }
+
+    /// Authorize (or re-authorize) Final Whistle for the active account.
+    /// This is the KeyAdd renewal, framed as authorizing the app: it
+    /// makes a fresh signer, so the app can keep posting as the account.
+    /// The error is shown as text only in the authorization section.
+    private func authorizeApp() async {
+        guard !authorizeBusy else { return }
+        authorizeBusy = true
+        authorizeError = nil
+        defer { authorizeBusy = false }
+        do {
+            try await identity.authorizeApp()
+        } catch {
+            authorizeError = error.localizedDescription
         }
     }
 

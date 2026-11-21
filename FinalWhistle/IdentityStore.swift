@@ -40,6 +40,13 @@ final class IdentityStore: ObservableObject {
     @Published private(set) var status: String = ""
     @Published private(set) var isWorking: Bool = false
     @Published private(set) var lastError: String?
+    // Authorization: whether the active account's current signer is
+    // active on the node, and when it would expire if unused. This is
+    // the node's own view (last_used_at + ttl), so it slides with use.
+    @Published private(set) var authorizationChecked = false
+    @Published private(set) var isAuthorized = false
+    @Published private(set) var authorizationExpiresAt: Date?
+    @Published private(set) var authorizationError: String?
 
     private let logger = Logger(subsystem: "app.final-whistle", category: "identity")
     private let libraryStore = LocalStore<IdentityLibrary>(fileName: "identities.json")
@@ -446,7 +453,74 @@ final class IdentityStore: ObservableObject {
         profile = nil
         status = ""
         lastError = nil
+        authorizationChecked = false
+        isAuthorized = false
+        authorizationExpiresAt = nil
+        authorizationError = nil
         try? saveLibrary()
+    }
+
+    // MARK: - Authorizing Final Whistle
+
+    /// Check the active account's authorization on the node: whether its
+    /// current signer is active, and when it would expire if unused.
+    /// This is the node's own view, so it slides with use. Safe to call
+    /// any time; a failure leaves the last known state and records the
+    /// error for the panel to show.
+    func refreshAuthorization() async {
+        guard let record else {
+            authorizationChecked = true
+            isAuthorized = false
+            authorizationExpiresAt = nil
+            authorizationError = nil
+            return
+        }
+        do {
+            let info = try await HypersnapClient.signersByFID(record.fid.value)
+            let publicKey = Data(hex: record.signerPublicKeyHex)
+            let match = info.signers.first { $0.publicKey == publicKey }
+            isAuthorized = match != nil
+            authorizationExpiresAt = match?.expiresAt
+            authorizationError = nil
+        } catch {
+            authorizationError = error.localizedDescription
+            isAuthorized = false
+            authorizationExpiresAt = nil
+        }
+        authorizationChecked = true
+    }
+
+    /// Authorize Final Whistle to act as the active account: make a fresh
+    /// signer and register it with a KeyAdd (the next user nonce). This
+    /// is the renewal the user thinks of as "authorizing the app" — the
+    /// app can then post, reply, like, and recast as the account, for a
+    /// 30-day window that renews with use. It needs the custody key, so
+    /// it asks for Face ID / passcode. A signer-only account (brought
+    /// FID, no custody key) cannot be authorized here.
+    func authorizeApp() async throws {
+        guard let record else { throw IdentityError.notSignedIn }
+        isWorking = true
+        lastError = nil
+        defer { isWorking = false }
+        status = "Unlocking to authorize Final Whistle…"
+        let custodyKey: Data
+        do {
+            custodyKey = try KeychainStore.load(
+                account: KeychainStore.custodyAccount(for: record.custodyAddress),
+                prompt: "Unlock to authorize Final Whistle"
+            )
+        } catch KeychainStore.KeychainError.notFound {
+            throw IdentityError.noCustodyKey
+        }
+        status = "Authorizing Final Whistle…"
+        let renewed = try await renewSigner(fid: record.fid.value, custodyAddress: record.custodyAddress, custodyKey: custodyKey)
+        var updated = record
+        updated.signerPublicKeyHex = renewed.publicKeyHex
+        updated.signerExpiresAt = Date().addingTimeInterval(30 * 24 * 3600)
+        upsertIdentity(updated, makeActive: false)
+        try saveLibrary()
+        status = ""
+        await refreshAuthorization()
     }
 
     // MARK: - Posting and reactions (identity required)
@@ -642,6 +716,7 @@ final class IdentityStore: ObservableObject {
         case anchorExpired
         case noFIDAssigned
         case notSignedIn
+        case noCustodyKey
         case authenticationUnavailable
         case authenticationCancelled
         case authenticationFailed
@@ -657,6 +732,7 @@ final class IdentityStore: ObservableObject {
             case .anchorExpired: return "The registration anchor expired while mining. Try again."
             case .noFIDAssigned: return "No FID was assigned within 60 seconds."
             case .notSignedIn: return "Sign in first."
+            case .noCustodyKey: return "This account has no custody key on this phone, so Final Whistle cannot authorize a new signer for it."
             case .authenticationUnavailable: return "This phone cannot ask for Face ID or a passcode right now."
             case .authenticationCancelled: return "Unlock was cancelled."
             case .authenticationFailed: return "Unlock failed. Try again."

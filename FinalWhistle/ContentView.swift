@@ -245,6 +245,55 @@ private struct ComingSoonView: View {
     }
 }
 
+/// One row in the Accounts list: pfp, display name / FID, and a
+/// checkmark for the active account (a spinner while it is switching).
+/// A separate View so ProfileView.body stays small enough for the
+/// compiler to type-check in reasonable time.
+private struct AccountRowView: View {
+    let account: IdentityRecord
+    let isActive: Bool
+    let isSwitching: Bool
+    let isDisabled: Bool
+    let onSelect: () -> Void
+
+    var body: some View {
+        Button(action: onSelect) {
+            HStack(spacing: 12) {
+                if let pfpString = account.pfpURL, let pfpURL = URL(string: pfpString) {
+                    AsyncImage(url: pfpURL) { image in
+                        image.resizable().scaledToFill()
+                    } placeholder: {
+                        Color.fwPanelSoft
+                    }
+                    .frame(width: 40, height: 40)
+                    .clipShape(Circle())
+                } else {
+                    Image(systemName: "person.crop.circle.fill")
+                        .font(.system(size: 40))
+                        .foregroundStyle(Color.fwMuted)
+                }
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(account.listTitle)
+                        .font(.subheadline)
+                        .fontWeight(.semibold)
+                        .foregroundStyle(Color.fwText)
+                    Text("FID \(account.fid.description)")
+                        .font(.caption)
+                        .foregroundStyle(Color.fwMuted)
+                }
+                Spacer()
+                if isSwitching {
+                    ProgressView()
+                } else if isActive {
+                    Image(systemName: "checkmark")
+                        .foregroundStyle(Color.fwLime)
+                }
+            }
+        }
+        .disabled(isDisabled)
+    }
+}
+
 struct ProfileView: View {
     @EnvironmentObject private var identity: IdentityStore
     @Environment(\.dismiss) private var dismiss
@@ -288,40 +337,13 @@ struct ProfileView: View {
                 } else {
                     Section("Accounts") {
                         ForEach(identity.identities, id: \.fid) { account in
-                            Button { Task { await switchTo(account) } } label: {
-                                HStack(spacing: 12) {
-                                    if let pfpString = account.pfpURL, let pfpURL = URL(string: pfpString) {
-                                        AsyncImage(url: pfpURL) { image in
-                                            image.resizable().scaledToFill()
-                                        } placeholder: {
-                                            Color.fwPanelSoft
-                                        }
-                                        .frame(width: 40, height: 40)
-                                        .clipShape(Circle())
-                                    } else {
-                                        Image(systemName: "person.crop.circle.fill")
-                                            .font(.system(size: 40))
-                                            .foregroundStyle(Color.fwMuted)
-                                    }
-                                    VStack(alignment: .leading, spacing: 2) {
-                                        Text(account.listTitle)
-                                            .font(.subheadline)
-                                            .fontWeight(.semibold)
-                                            .foregroundStyle(Color.fwText)
-                                        Text("FID \(account.fid.description)")
-                                            .font(.caption)
-                                            .foregroundStyle(Color.fwMuted)
-                                    }
-                                    Spacer()
-                                    if switchingFID == account.fid.value {
-                                        ProgressView()
-                                    } else if account.fid == identity.record?.fid {
-                                        Image(systemName: "checkmark")
-                                            .foregroundStyle(Color.fwLime)
-                                    }
-                                }
-                            }
-                            .disabled(switchingFID != nil)
+                            AccountRowView(
+                                account: account,
+                                isActive: account.fid == identity.record?.fid,
+                                isSwitching: switchingFID == account.fid.value,
+                                isDisabled: switchingFID != nil,
+                                onSelect: { Task { await switchTo(account) } }
+                            )
                         }
                         Button { showingOnboarding = true } label: {
                             Label("Add account", systemImage: "plus.circle")
@@ -412,47 +434,7 @@ struct ProfileView: View {
                             .foregroundStyle(.secondary)
                     }
 
-                    Section("Final Whistle authorization") {
-                        if !identity.authorizationChecked {
-                            HStack {
-                                Text("Checking authorization…")
-                                    .font(.footnote)
-                                    .foregroundStyle(.secondary)
-                                Spacer()
-                                ProgressView()
-                            }
-                        } else {
-                            if identity.isAuthorized {
-                                Text("Final Whistle can post, reply, like, and recast as this account.")
-                                    .font(.footnote)
-                                    .foregroundStyle(.secondary)
-                                if let expires = identity.authorizationExpiresAt {
-                                    LabeledContent("Expires if unused", value: expires.formatted(date: .abbreviated, time: .omitted))
-                                }
-                            } else {
-                                Text("Final Whistle is not authorized to post as this account. Authorizing makes a fresh signer for the app, good for a 30-day window that renews every time you post.")
-                                    .font(.footnote)
-                                    .foregroundStyle(.secondary)
-                            }
-                            HStack {
-                                Button(identity.isAuthorized ? "Re-authorize" : "Authorize Final Whistle") { Task { await authorizeApp() } }
-                                    .disabled(authorizeBusy)
-                                if authorizeBusy {
-                                    ProgressView()
-                                }
-                            }
-                            if let authorizeError {
-                                Text(authorizeError)
-                                    .font(.caption)
-                                    .foregroundStyle(Color.fwAccent)
-                            }
-                        }
-                        if let authError = identity.authorizationError {
-                            Text("Could not check the authorization: \(authError)")
-                                .font(.caption)
-                                .foregroundStyle(Color.fwAccent)
-                        }
-                    }
+                    authorizationSection
 
                     // A title string and a footer cannot be combined
                     // in one Section call — there is no such overload,
@@ -527,6 +509,53 @@ struct ProfileView: View {
                 // when the panel opens, so the section shows the real
                 // status instead of a stale local date.
                 await identity.refreshAuthorization()
+            }
+        }
+    }
+
+    /// The Final Whistle authorization section, kept as its own computed
+    /// property so ProfileView.body stays small enough for the compiler
+    /// to type-check in reasonable time.
+    private var authorizationSection: some View {
+        Section("Final Whistle authorization") {
+            if !identity.authorizationChecked {
+                HStack {
+                    Text("Checking authorization…")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    ProgressView()
+                }
+            } else {
+                if identity.isAuthorized {
+                    Text("Final Whistle can post, reply, like, and recast as this account.")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                    if let expires = identity.authorizationExpiresAt {
+                        LabeledContent("Expires if unused", value: expires.formatted(date: .abbreviated, time: .omitted))
+                    }
+                } else {
+                    Text("Final Whistle is not authorized to post as this account. Authorizing makes a fresh signer for the app, good for a 30-day window that renews every time you post.")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
+                HStack {
+                    Button(identity.isAuthorized ? "Re-authorize" : "Authorize Final Whistle") { Task { await authorizeApp() } }
+                        .disabled(authorizeBusy)
+                    if authorizeBusy {
+                        ProgressView()
+                    }
+                }
+                if let authorizeError {
+                    Text(authorizeError)
+                        .font(.caption)
+                        .foregroundStyle(Color.fwAccent)
+                }
+            }
+            if let authError = identity.authorizationError {
+                Text("Could not check the authorization: \(authError)")
+                    .font(.caption)
+                    .foregroundStyle(Color.fwAccent)
             }
         }
     }

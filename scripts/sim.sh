@@ -150,6 +150,8 @@ if ! open -b com.apple.iphonesimulator 2>/dev/null; then
     fi
     if [[ -n "$SIM_APP" ]]; then
         open "$SIM_APP" || echo "Warning: could not open $SIM_APP." >&2
+    elif open -a Simulator 2>/dev/null; then
+        : # Opened by name; Launch Services found it.
     else
         echo "Warning: Simulator.app not found (xcode-select: $(xcode-select -p 2>/dev/null)). The build/install/launch below still run; open Simulator from Xcode's Open Developer Tool menu to see the app." >&2
     fi

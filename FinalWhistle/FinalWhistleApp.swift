@@ -13,12 +13,14 @@ import SwiftUI
 struct FinalWhistleApp: App {
     @StateObject private var identity = IdentityStore()
     @StateObject private var feed = FeedStore()
+    @StateObject private var router = Router()
 
     var body: some Scene {
         WindowGroup {
             ContentView()
                 .environmentObject(identity)
                 .environmentObject(feed)
+                .environmentObject(router)
                 // final-whistle.app is dark-only: near-black navy, lime
                 // highlights, magenta primary buttons (see Theme.swift).
                 .preferredColorScheme(.dark)

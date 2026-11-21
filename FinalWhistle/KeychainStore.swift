@@ -82,8 +82,11 @@ enum KeychainStore {
                 .userPresence,
                 nil
             ) {
+                // The access control already carries the accessibility
+                // (WhenUnlockedThisDeviceOnly). Setting kSecAttrAccessible
+                // as well is an error — SecItemAdd returns errSecParam
+                // (-50) — so only the access control goes in.
                 attributes[kSecAttrAccessControl as String] = accessControl
-                attributes[kSecAttrAccessible as String] = kSecAttrAccessibleWhenUnlockedThisDeviceOnly
             } else {
                 // Could not build the access control; fall back to the
                 // standard device-only protection so the key is stored.

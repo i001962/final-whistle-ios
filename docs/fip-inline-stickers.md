@@ -124,6 +124,19 @@ holding a whole pack, with offsets picking out each icon.
    that does not implement this FIP will show the sheet as a picture block,
    the same degradation as a single emoji.)
 
+**Why a sidecar, not embedded metadata.** The icon-file precedent (ICO)
+embeds a directory in the file itself: each entry carries the byte offset
+and size of its image, so the location of every icon is in the file — but
+ICO has no name field at all. Icons are picked by size, not by name. Our
+problem is names: a shortcode has to resolve to a specific cell. That
+mapping could be embedded in the image file's metadata (WebP XMP, PNG
+text chunks), but image pipelines, CDNs, and optimizers routinely strip
+metadata, and most image loaders do not expose it to the client. A sidecar
+JSON is a plain fetch that nothing strips, and it carries the names the
+format itself never had. The image still carries its own dimensions — the
+client validates the manifest against the downloaded image — so the only
+thing in the sidecar is the part the file cannot carry reliably: the names.
+
 ## Rendering (supporting clients)
 
 1. Replace each matched `:label:` with the image, inline, at the text line

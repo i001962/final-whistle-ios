@@ -2,23 +2,24 @@ import SwiftUI
 
 // MARK: - Live match rooms
 
-/// A match room is a parent URL fans post to, not a channel: the
-/// room's messages are the casts carrying
-/// `https://final-whistle.app/chat/<n>` as parent_url, read through
-/// the same feed/parent_urls endpoint as /football. The room itself
-/// is just an address — no server-side room object exists yet, and
-/// the list below is the whole directory for now (one room per
-/// match, later).
+/// A match room is a thread, not a channel and not a parent URL:
+/// the room's messages are the replies under one root cast, read
+/// through the conversation endpoint. The room itself is just that
+/// anchor cast — no server-side room object exists yet, and the list
+/// below is the whole directory for now (one room per match, later).
 struct ChatRoom: Identifiable, Hashable {
     let id: String
     let title: String
-    let parentURL: String
+    /// The cast hash this room is a thread under (40 hex chars, no
+    /// 0x). Every message in the room is a reply to this cast, or a
+    /// reply to one of those replies.
+    let rootHash: String
 
     static let all: [ChatRoom] = [
         ChatRoom(
             id: "gantry",
             title: "The Gantry",
-            parentURL: "https://final-whistle.app/chat/gantry"
+            rootHash: "ef1449dcf2b8642c19c15c8ea16b33b826655855"
         ),
     ]
 }
@@ -61,11 +62,12 @@ struct RoomsView: View {
 /// pinned there — the latest message is always visible and older ones
 /// scroll off the top. Replies are NOT hidden in a thread — every
 /// reply shows inline in the feed, iMessage-style, with a small quote
-/// of the message it answers above it. A top-level message posts with
-/// the room as parent_url; a reply posts with parent_cast_id (a real
-/// Farcaster reply, so other clients still see the thread), and the
-/// room loads each top-level cast's conversation and flattens the
-/// whole tree into the one list.
+/// of the message it answers above it. Every message in the room is
+/// a reply with parent_cast_id (a real Farcaster reply, so other
+/// clients still see the thread): a plain message answers the room's
+/// root cast, a reply answers the message it was long-pressed on.
+/// The room loads the root cast's conversation and flattens the whole
+/// tree into the one list.
 ///
 /// The pinning is a flipped list, not a scroll-to-bottom call: the
 /// messages are newest-first and the ScrollView is rotated 180°, with
@@ -78,6 +80,7 @@ struct RoomView: View {
 
     @EnvironmentObject private var identity: IdentityStore
     @State private var messages: [Cast] = []
+    @State private var rootCast: Cast?
     @State private var loading = false
     @State private var failed: String?
     @State private var draft = ""
@@ -168,25 +171,14 @@ struct RoomView: View {
         loading = true
         failed = nil
         do {
-            // Newest-first from the node, then each top-level cast's
-            // conversation fetched in parallel and flattened in, so
-            // replies show inline instead of hiding in threads. Capped
-            // at 25 top-level casts to bound the fan-out.
-            let top = try await FeedService.parentURL(room.parentURL, limit: 25, viewerFID: identity.record?.fid)
-            var all = top
-            await withTaskGroup(of: [Cast].self) { group in
-                for cast in top {
-                    group.addTask {
-                        guard let thread = try? await FeedService.conversation(hash: cast.hash, viewerFID: identity.record?.fid) else {
-                            return []
-                        }
-                        return Self.flatten(thread.directReplies ?? [])
-                    }
-                }
-                for await replies in group {
-                    all += replies
-                }
-            }
+            // The room IS the thread under its root cast: one
+            // conversation fetch returns the root plus its whole reply
+            // tree, flattened in, so replies show inline instead of
+            // hiding in threads. No parent_urls fan-out any more.
+            let thread = try await FeedService.conversation(hash: room.rootHash, viewerFID: identity.record?.fid)
+            rootCast = thread
+            var all = [thread]
+            all += Self.flatten(thread.directReplies ?? [])
             let deduped = FeedService.dedup(all)
             // Newest-first: the flipped list shows the first row at
             // the visual bottom, so the latest message is the one
@@ -312,26 +304,25 @@ struct RoomView: View {
         guard identity.isSignedIn else { showingProfile = true; return }
         let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty, !sending else { return }
+        // Every message in the room is a reply: a plain message
+        // answers the room's root cast, a long-press reply answers
+        // that message. If the root has not loaded yet there is
+        // nothing to answer, so wait rather than posting nowhere.
+        guard let target = replyingTo ?? rootCast else {
+            sendError = "The room hasn't loaded yet — try again in a moment."
+            return
+        }
         sending = true
         sendError = nil
         // Take the reply target out of state FIRST: if this send fails,
-        // the next message must still be a top-level post. Clearing
+        // the next message must still answer the root cast. Clearing
         // only after a successful reply let a failed send leave reply
         // mode stuck on, so every later post came out as a reply to
-        // the same message. The default is always a top-level post;
-        // a reply is one explicit long-press per message.
-        let replyTarget = replyingTo
+        // the same message. The default is always the root cast; a
+        // reply to a message is one explicit long-press per message.
         replyingTo = nil
         do {
-            // Both branches wait for the new hash to appear in the
-            // flattened list: a top-level post via parent_urls, a reply
-            // via its parent's conversation.
-            let hash: String
-            if let replyTarget {
-                hash = try await identity.reply(to: replyTarget, text: text)
-            } else {
-                hash = try await identity.post(text: text, parentURL: room.parentURL)
-            }
+            let hash = try await identity.reply(to: target, text: text)
             draft = ""
             composerFocused = false
             await reloadUntilVisible(hash: hash)
@@ -342,14 +333,21 @@ struct RoomView: View {
     }
 
     /// Send a sticker: a cast with no text and the sticker image as
-    /// its only embed. Same wait-for-it-to-land flow as send().
+    /// its only embed, replying to the message being answered — or
+    /// the room's root cast, like a plain message. Same
+    /// wait-for-it-to-land flow as send().
     private func sendSticker(_ url: String) async {
         guard identity.isSignedIn else { showingProfile = true; return }
         guard !sending else { return }
+        guard let target = replyingTo ?? rootCast else {
+            sendError = "The room hasn't loaded yet — try again in a moment."
+            return
+        }
         sending = true
         sendError = nil
+        replyingTo = nil
         do {
-            let hash = try await identity.postSticker(url: url, parentURL: room.parentURL)
+            let hash = try await identity.replySticker(to: target, url: url)
             await reloadUntilVisible(hash: hash)
         } catch {
             sendError = error.localizedDescription
@@ -357,11 +355,10 @@ struct RoomView: View {
         sending = false
     }
 
-    /// The node takes a moment to index a new cast into the parent_urls
-    /// feed — the reload right after submit usually returns before it
-    /// lands, so the message looks lost even though it posted fine
-    /// (verified live 2026-11-20: the cast was in the feed minutes
-    /// later, parent_url exact). Poll until the new hash shows up.
+    /// The node takes a moment to index a new cast into the root
+    /// cast's conversation — the reload right after submit usually
+    /// returns before it lands, so the message looks lost even though
+    /// it posted fine. Poll until the new hash shows up.
     private func reloadUntilVisible(hash: String, attempts: Int = 5) async {
         let key = hash.replacingOccurrences(of: "0x", with: "").lowercased()
         for attempt in 0..<attempts {

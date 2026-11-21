@@ -22,27 +22,27 @@ struct OnboardingView: View {
                         Text("Add an account")
                             .font(.largeTitle)
                             .fontWeight(.bold)
-                        Text("Football talk on Hypersnap. Bring a FID you already have, or create a free Hypersnap native FID here. It joins the accounts already on this phone, each with its own custody key in the Keychain.")
+                        Text("Add an account you already have, or create a new one. It joins the accounts already on this phone.")
                             .font(.body)
                             .foregroundStyle(.secondary)
                     }
 
-                    GroupBox("Bring your FID") {
+                    GroupBox("I already have an account") {
                         VStack(alignment: .leading, spacing: 12) {
-                            Text("Enter your FID and the Ed25519 signer seed from your earlier onboarding. The seed is stored only in this phone's Keychain.")
+                            Text("Enter your account ID and the sign-in key from when you set it up. The key stays on this phone only.")
                                 .font(.footnote)
                                 .foregroundStyle(.secondary)
-                            TextField("FID, for example 4294967310", text: $fidText)
+                            TextField("Account ID, for example 4294967310", text: $fidText)
                                 .keyboardType(.numberPad)
                                 .textFieldStyle(.roundedBorder)
                                 .frame(minHeight: 44)
-                            SecureField("Signer seed, 64 hex characters", text: $seedText)
+                            SecureField("Sign-in key, 64 characters", text: $seedText)
                                 .textContentType(.none)
                                 .autocapitalization(.none)
                                 .autocorrectionDisabled()
                                 .textFieldStyle(.roundedBorder)
                                 .frame(minHeight: 44)
-                            Button("Sign in with this FID") {
+                            Button("Sign in") {
                                 Task { await bringYourFID() }
                             }
                             .buttonStyle(.borderedProminent)
@@ -51,15 +51,15 @@ struct OnboardingView: View {
                         }
                     }
 
-                    GroupBox("Create a new Hypersnap FID") {
+                    GroupBox("Create a new account") {
                         VStack(alignment: .leading, spacing: 12) {
-                            Text("Free, Hypersnap only, no ETH, no rented storage. A fresh custody key and signer are generated on this phone, and the new FID is added alongside your other accounts. One custody address gets one FID, and custody cannot be changed later, so losing the custody key loses the FID. Native FIDs do not appear on Warpcast.")
+                            Text("Free. A new account is created on this phone, alongside your other accounts. Back up its recovery key from the Account panel afterwards, so you can get back in if you lose this phone.")
                                 .font(.footnote)
                                 .foregroundStyle(.secondary)
                             if identity.isWorking {
                                 ProgressView(identity.status.isEmpty ? "Working…" : identity.status)
                             }
-                            Button("Create a free Hypersnap FID") {
+                            Button("Create a free account") {
                                 Task { await createNewFID() }
                             }
                             .buttonStyle(.borderedProminent)
@@ -92,7 +92,7 @@ struct OnboardingView: View {
         error = nil
         defer { working = false }
         guard let fid = UInt64(fidText.trimmingCharacters(in: .whitespaces)) else {
-            error = "Enter a numeric FID."
+            error = "Enter a numeric account ID."
             return
         }
         do {

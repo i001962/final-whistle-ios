@@ -230,6 +230,13 @@ struct CastRow: View {
             RoundedRectangle(cornerRadius: 16)
                 .stroke(Color.fwLine, lineWidth: 1)
         )
+        // Full width, or the stack centers the card: a LazyVStack
+        // defaults to center alignment, so a card only as wide as its
+        // content — a one-word post like "Test", no embeds — sat
+        // centered and read as indented, even though it is a
+        // top-level cast. Same lesson as the room rows: the width
+        // belongs inside the row.
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     /// Optimistic toggle, Quilcast-style: the heart fills and the count

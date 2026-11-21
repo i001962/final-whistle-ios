@@ -95,6 +95,16 @@ final class FinalWhistleTests: XCTestCase {
         XCTAssertTrue(body.hexString.contains(field.hexString))
     }
 
+    func testImageCacheRoundTrip() {
+        // A stored pfp comes back from the cache, so a scrolling list
+        // never re-fetches a picture it already has.
+        let url = URL(string: "https://example.com/pfp.png")!
+        let image = UIImage(systemName: "star")!
+        ImageCache.shared.set(image, for: url)
+        XCTAssertNotNil(ImageCache.shared.image(for: url))
+        XCTAssertNil(ImageCache.shared.image(for: URL(string: "https://example.com/other.png")!))
+    }
+
     func testStickerURLPattern() {
         // Hosted-pack shape, Quilcast's stickerPack check with our host.
         let hosted = URL(string: "https://final-whistle.app/st/abcdefgh/0123456789abcdef01234567.webp")!

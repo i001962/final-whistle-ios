@@ -272,9 +272,13 @@ struct RoomView: View {
                 }
                 .accessibilityLabel("Stickers")
 
-                TextField("Message the room…", text: $draft, axis: .vertical)
+                // Single line, Return sends: room messages are short
+                // bursts, and a multi-line field eats the Return key
+                // for a newline instead of posting.
+                TextField("Message the room…", text: $draft)
                     .focused($composerFocused)
-                    .lineLimit(1...4)
+                    .submitLabel(.send)
+                    .onSubmit { Task { await send() } }
                     .padding(.horizontal, 14)
                     .padding(.vertical, 10)
                     .background(Color.fwPanel, in: RoundedRectangle(cornerRadius: 20))
@@ -310,14 +314,21 @@ struct RoomView: View {
         guard !text.isEmpty, !sending else { return }
         sending = true
         sendError = nil
+        // Take the reply target out of state FIRST: if this send fails,
+        // the next message must still be a top-level post. Clearing
+        // only after a successful reply let a failed send leave reply
+        // mode stuck on, so every later post came out as a reply to
+        // the same message. The default is always a top-level post;
+        // a reply is one explicit long-press per message.
+        let replyTarget = replyingTo
+        replyingTo = nil
         do {
             // Both branches wait for the new hash to appear in the
             // flattened list: a top-level post via parent_urls, a reply
             // via its parent's conversation.
             let hash: String
-            if let replyingTo {
-                hash = try await identity.reply(to: replyingTo, text: text)
-                self.replyingTo = nil
+            if let replyTarget {
+                hash = try await identity.reply(to: replyTarget, text: text)
             } else {
                 hash = try await identity.post(text: text, parentURL: room.parentURL)
             }
@@ -379,13 +390,9 @@ private struct RoomMessageRow: View {
     var body: some View {
         HStack(alignment: .top, spacing: 10) {
             if let pfpURL = cast.author.pfpURL {
-                AsyncImage(url: pfpURL) { image in
-                    image.resizable().scaledToFill()
-                } placeholder: {
-                    Color.fwPanelSoft
-                }
-                .frame(width: 32, height: 32)
-                .clipShape(Circle())
+                CachedImage(url: pfpURL)
+                    .frame(width: 32, height: 32)
+                    .clipShape(Circle())
             } else {
                 Image(systemName: "person.crop.circle.fill")
                     .font(.title2)
@@ -407,24 +414,21 @@ private struct RoomMessageRow: View {
                         .foregroundStyle(Color.fwMuted)
                 }
 
+                // The message this answers, as one small line: a name
+                // and a snippet, no card, no extra indent. The old
+                // version was a padded two-line card that pushed the
+                // quote right of the message and made a top-level post
+                // landing after a reply read like part of its thread.
                 if let parent {
                     HStack(spacing: 6) {
                         Rectangle()
                             .fill(Color.fwAccent)
                             .frame(width: 2)
-                        VStack(alignment: .leading, spacing: 1) {
-                            Text("@\(parent.author.username ?? "fid:\(parent.author.fid.value)")")
-                                .font(.caption)
-                                .fontWeight(.semibold)
-                                .foregroundStyle(Color.fwAccentSoft)
-                            Text(parent.text)
-                                .font(.caption)
-                                .foregroundStyle(Color.fwMuted)
-                                .lineLimit(2)
-                        }
+                        Text("@\(parent.author.username ?? "fid:\(parent.author.fid.value)"): \(parent.text)")
+                            .font(.caption)
+                            .foregroundStyle(Color.fwMuted)
+                            .lineLimit(1)
                     }
-                    .padding(8)
-                    .background(Color.fwPanelSoft, in: RoundedRectangle(cornerRadius: 8))
                 }
 
                 CastTextView(cast: cast)

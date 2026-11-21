@@ -162,14 +162,10 @@ struct CastRow: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(alignment: .top, spacing: 10) {
-                AsyncImage(url: cast.author.pfpURL) { image in
-                    image.resizable().scaledToFill()
-                } placeholder: {
-                    Color.fwPanelSoft
-                }
-                .frame(width: 40, height: 40)
-                .clipShape(Circle())
-                .accessibilityHidden(true)
+                CachedImage(url: cast.author.pfpURL)
+                    .frame(width: 40, height: 40)
+                    .clipShape(Circle())
+                    .accessibilityHidden(true)
 
                 VStack(alignment: .leading, spacing: 2) {
                     HStack(spacing: 4) {

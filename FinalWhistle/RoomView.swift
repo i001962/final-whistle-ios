@@ -211,6 +211,12 @@ struct RoomView: View {
     private func parentOf(_ cast: Cast) -> Cast? {
         guard let parentHash = cast.parentHash else { return nil }
         let key = parentHash.replacingOccurrences(of: "0x", with: "").lowercased()
+        // A reply to the room's root cast carries no quote: the root
+        // IS the room, so quoting it on every plain message just
+        // restates the topic and tells the user they are replying to
+        // a cast they never chose to answer. Only replies to other
+        // messages get the small quote.
+        if key == room.rootHash.lowercased() { return nil }
         return messages.first { $0.hash.lowercased() == key }
     }
 

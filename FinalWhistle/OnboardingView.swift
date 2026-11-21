@@ -84,6 +84,15 @@ struct OnboardingView: View {
             .background(Color.fwBackground)
             .navigationTitle("Add account")
             .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                // The header needs a way out: without this, the only
+                // dismiss paths are the button at the bottom of the
+                // scroll view or a swipe-down, and the header has no
+                // tappable affordance at all.
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Done") { dismiss() }
+                }
+            }
         }
     }
 

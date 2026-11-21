@@ -105,6 +105,13 @@ final class FinalWhistleTests: XCTestCase {
         XCTAssertNil(ImageCache.shared.image(for: URL(string: "https://example.com/other.png")!))
     }
 
+    func testStickerStoreAcceptsExtensionlessURL() {
+        // A Castrater public file has no image extension in the URL;
+        // the picker proves it is an image by content type, so the
+        // store must not re-reject it on the address alone.
+        XCTAssertTrue(StickerStore.shared.addSticker(url: "https://storage.castrater.xyz/v1/public/0123456789abcdef"))
+    }
+
     func testStickerURLPattern() {
         // Hosted-pack shape, Quilcast's stickerPack check with our host.
         let hosted = URL(string: "https://final-whistle.app/st/abcdefgh/0123456789abcdef01234567.webp")!

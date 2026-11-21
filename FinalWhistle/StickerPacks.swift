@@ -66,12 +66,15 @@ final class StickerStore: ObservableObject {
     }
 
     /// Add an image URL to "My stickers". Returns false when the URL
-    /// is not a usable image link or is already in a pack.
+    /// is not an https link or is already in a pack. It deliberately
+    /// does NOT check the address for an image extension: the picker
+    /// proves the link is an image by content type before calling
+    /// here, and an image served at an extension-less URL (a Castrater
+    /// public file, an image CDN) is a valid sticker.
     @discardableResult
     func addSticker(url: String) -> Bool {
         guard let parsed = URL(string: url),
               parsed.scheme == "https",
-              CastMedia.isImageURL(parsed),
               !packs.flatMap(\.stickers).contains(where: { $0.url == url })
         else { return false }
         if packs.isEmpty {
@@ -118,6 +121,7 @@ struct StickerPickerSheet: View {
 
     @State private var urlField = ""
     @State private var urlError: String?
+    @State private var checking = false
 
     private var allStickers: [Sticker] { store.packs.flatMap(\.stickers) }
 
@@ -125,7 +129,9 @@ struct StickerPickerSheet: View {
         NavigationStack {
             VStack(alignment: .leading, spacing: 16) {
                 if allStickers.isEmpty {
-                    Text("No stickers yet. Paste an image URL below to add one — any picture works as a sticker.")
+                    // One sticker is one picture — not a Telegram pack,
+                    // not a zip, just a direct link to an image file.
+                    Text("No stickers yet. One sticker is one picture — paste a direct link to an image file (.png, .jpg, .webp or .gif) and it joins the pack.")
                         .font(.subheadline)
                         .foregroundStyle(Color.fwMuted)
                 } else {
@@ -158,14 +164,17 @@ struct StickerPickerSheet: View {
                 }
 
                 HStack(spacing: 8) {
-                    TextField("Paste an image URL", text: $urlField)
+                    TextField("Paste a direct image link", text: $urlField)
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled()
+                        .submitLabel(.done)
+                        .onSubmit { Task { await addURL() } }
                         .padding(.horizontal, 12)
                         .padding(.vertical, 10)
                         .background(Color.fwPanel, in: RoundedRectangle(cornerRadius: 12))
-                    Button("Add") { addURL() }
+                    Button(checking ? "Checking…" : "Add") { Task { await addURL() } }
                         .foregroundStyle(Color.fwAccent)
+                        .disabled(checking)
                 }
                 if let urlError {
                     Text(urlError)
@@ -186,20 +195,59 @@ struct StickerPickerSheet: View {
         }
     }
 
-    private func addURL() {
+    private func addURL() async {
         let raw = urlField.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard let url = URL(string: raw),
-              url.scheme == "https",
-              CastMedia.isImageURL(url)
-        else {
-            urlError = "That needs to be a full https:// image link."
+        guard let url = URL(string: raw), url.scheme == "https" else {
+            urlError = "That needs to be a full https:// link."
             return
         }
+        // Fast path: a direct image link (extension or known image
+        // host) needs no network check.
+        if CastMedia.isImageURL(url) {
+            finishAdd(raw)
+            return
+        }
+        // Otherwise ask the link what it is. The old check only read
+        // the address, so an image served at an extension-less URL —
+        // a Castrater public file, an image CDN — was rejected even
+        // though it is a perfectly good picture. The content type is
+        // the proof, not the spelling of the URL.
+        checking = true
+        urlError = nil
+        let isImage = await urlIsImage(url)
+        checking = false
+        if isImage {
+            finishAdd(raw)
+        } else {
+            urlError = "That link isn't a picture. Paste a direct link to an image file — one ending in .png, .jpg, .webp or .gif — not a web page."
+        }
+    }
+
+    private func finishAdd(_ raw: String) {
         if store.addSticker(url: raw) {
             urlField = ""
             urlError = nil
         } else {
             urlError = "That sticker is already in the pack."
         }
+    }
+
+    /// True when the URL serves an image, by content type. HEAD first
+    /// (no body); some hosts don't answer HEAD, so a ranged GET is
+    /// the fallback. A page URL comes back as text/html and fails.
+    private func urlIsImage(_ url: URL) async -> Bool {
+        var head = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 10)
+        head.httpMethod = "HEAD"
+        if let (_, response) = try? await URLSession.shared.data(for: head),
+           let http = response as? HTTPURLResponse,
+           let mime = http.mimeType, mime.hasPrefix("image/") {
+            return true
+        }
+        var get = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 10)
+        get.setValue("bytes=0-0", forHTTPHeaderField: "Range")
+        guard let (_, response) = try? await URLSession.shared.data(for: get),
+              let http = response as? HTTPURLResponse,
+              let mime = http.mimeType, mime.hasPrefix("image/") else { return false }
+        return true
     }
 }

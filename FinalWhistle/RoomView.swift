@@ -12,14 +12,12 @@ import SwiftUI
 struct ChatRoom: Identifiable, Hashable {
     let id: String
     let title: String
-    let subtitle: String
     let parentURL: String
 
     static let all: [ChatRoom] = [
         ChatRoom(
             id: "gantry",
             title: "The Gantry",
-            subtitle: "Live match chat — final-whistle.app/chat/gantry",
             parentURL: "https://final-whistle.app/chat/gantry"
         ),
     ]
@@ -29,34 +27,24 @@ struct ChatRoom: Identifiable, Hashable {
 struct RoomsView: View {
     var body: some View {
         List {
-            Section {
-                ForEach(ChatRoom.all) { room in
-                    // Value-based: the room is part of the router
-                    // path, so clearing the path pops back to this
-                    // directory. A destination-based link can leave
-                    // the room on screen with an empty path.
-                    NavigationLink(value: room) {
-                        HStack(spacing: 12) {
-                            Image(systemName: "bubble.left.and.bubble.right.fill")
-                                .font(.title3)
-                                .foregroundStyle(Color.fwAccent)
-                                .frame(width: 40, height: 40)
-                                .background(Color.fwPanelSoft, in: RoundedRectangle(cornerRadius: 10))
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(room.title)
-                                    .font(.headline)
-                                    .foregroundStyle(Color.fwText)
-                                Text(room.subtitle)
-                                    .font(.subheadline)
-                                    .foregroundStyle(Color.fwMuted)
-                            }
-                        }
-                        .padding(.vertical, 4)
+            ForEach(ChatRoom.all) { room in
+                // Value-based: the room is part of the router
+                // path, so clearing the path pops back to this
+                // directory. A destination-based link can leave
+                // the room on screen with an empty path.
+                NavigationLink(value: room) {
+                    HStack(spacing: 12) {
+                        Image(systemName: "bubble.left.and.bubble.right.fill")
+                            .font(.title3)
+                            .foregroundStyle(Color.fwAccent)
+                            .frame(width: 40, height: 40)
+                            .background(Color.fwPanelSoft, in: RoundedRectangle(cornerRadius: 10))
+                        Text(room.title)
+                            .font(.headline)
+                            .foregroundStyle(Color.fwText)
                     }
+                    .padding(.vertical, 4)
                 }
-            } footer: {
-                Text("Live match rooms — group chat for the match, with threaded replies and reactions. One room per match; more rooms coming.")
-                    .foregroundStyle(Color.fwMuted)
             }
         }
         .scrollContentBackground(.hidden)

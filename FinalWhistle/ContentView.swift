@@ -1,6 +1,5 @@
 import SwiftUI
-import PhotosUI
-import UniformTypeIdentifiers
+import UIKit
 
 /// Programmatic navigation for taps that can't use a NavigationLink:
 /// an @mention inside a cast's text is an AttributedString link, not a
@@ -172,12 +171,23 @@ struct ContentView: View {
 
     /// Footy-style floating tab bar. Switching tabs pops any open
     /// thread first, so you always land on the section's top.
+    ///
+    /// Two things that used to break this from inside a room: the
+    /// composer's keyboard sits over the footer, so the tap landed on
+    /// the keyboard and nothing happened; and switching the stack's
+    /// root while a destination is still pushed can leave the pushed
+    /// view on screen, so the pop lands first and the tab switch
+    /// follows on the next turn.
     private var tabBar: some View {
         HStack(spacing: 0) {
             ForEach(AppTab.allCases, id: \.self) { tab in
                 Button {
+                    UIApplication.shared.sendAction(
+                        #selector(UIResponder.resignFirstResponder),
+                        to: nil, from: nil, for: nil
+                    )
                     router.path = NavigationPath()
-                    selectedTab = tab
+                    Task { @MainActor in selectedTab = tab }
                 } label: {
                     VStack(spacing: 3) {
                         Image(systemName: tab.icon)
@@ -231,14 +241,15 @@ struct ProfileView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var confirmingSignOut = false
     @State private var showingOnboarding = false
-    @State private var showingPhotoPicker = false
-    @State private var pickedPreview: UIImage?
-    // Error text only — the panel says nothing while an upload is
+    // Error text only — the panel says nothing while a save is
     // running or after it succeeds. A stale error clears when a new
     // attempt starts.
     @State private var photoStatus: String?
     @State private var pfpURLField = ""
     @State private var photoBusy = false
+    @State private var displayNameField = ""
+    @State private var displayNameError: String?
+    @State private var displayNameBusy = false
 
     var body: some View {
         NavigationStack {
@@ -246,13 +257,7 @@ struct ProfileView: View {
                 if let record = identity.record {
                     Section("Profile photo") {
                         HStack(spacing: 12) {
-                            if let preview = pickedPreview {
-                                Image(uiImage: preview)
-                                    .resizable()
-                                    .scaledToFill()
-                                    .frame(width: 64, height: 64)
-                                    .clipShape(Circle())
-                            } else if let pfpURL = identity.profile?.pfpURL {
+                            if let pfpURL = identity.profile?.pfpURL {
                                 AsyncImage(url: pfpURL) { image in
                                     image.resizable().scaledToFill()
                                 } placeholder: {
@@ -266,29 +271,47 @@ struct ProfileView: View {
                                     .foregroundStyle(Color.fwMuted)
                             }
 
-                            VStack(alignment: .leading, spacing: 4) {
-                                HStack(spacing: 8) {
-                                    Button("Change photo") { showingPhotoPicker = true }
-                                        .disabled(photoBusy)
-                                    if photoBusy {
-                                        ProgressView()
-                                    }
-                                }
-                                if let photoStatus {
-                                    Text(photoStatus)
-                                        .font(.caption)
-                                        .foregroundStyle(Color.fwAccent)
-                                }
-                            }
-                        }
-
-                        HStack {
-                            TextField("Or paste an image URL", text: $pfpURLField)
+                            TextField("Paste an image URL", text: $pfpURLField)
                                 .textInputAutocapitalization(.never)
                                 .autocorrectionDisabled()
                                 .disabled(photoBusy)
+                        }
+
+                        HStack {
                             Button("Use URL") { Task { await setPFPFromURL() } }
                                 .disabled(photoBusy || pfpURLField.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                            if photoBusy {
+                                ProgressView()
+                            }
+                        }
+                        if let photoStatus {
+                            Text(photoStatus)
+                                .font(.caption)
+                                .foregroundStyle(Color.fwAccent)
+                        }
+                    }
+
+                    Section("Display name") {
+                        HStack {
+                            TextField("Display name", text: $displayNameField)
+                                .disabled(displayNameBusy)
+                            Button("Save") { Task { await setDisplayNameFromField() } }
+                                .disabled(displayNameBusy || displayNameField.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                            if displayNameBusy {
+                                ProgressView()
+                            }
+                        }
+                        if let displayNameError {
+                            Text(displayNameError)
+                                .font(.caption)
+                                .foregroundStyle(Color.fwAccent)
+                        }
+                    }
+                    .onAppear {
+                        // Prefill with the current name once; what the
+                        // user typed is never overwritten.
+                        if displayNameField.isEmpty {
+                            displayNameField = identity.profile?.displayName ?? ""
                         }
                     }
 
@@ -344,48 +367,28 @@ struct ProfileView: View {
             .sheet(isPresented: $showingOnboarding) {
                 OnboardingView()
             }
-            .sheet(isPresented: $showingPhotoPicker) {
-                // The plain `.photosPicker` sheet shows no Cancel on
-                // this phone, so there was no way out without picking.
-                // This one is our own sheet with a Cancel button.
-                NavigationStack {
-                    PhotoLibraryPicker(
-                        onPick: { data in
-                            showingPhotoPicker = false
-                            Task { await setPFPFromPicker(data) }
-                        },
-                        onCancel: { showingPhotoPicker = false }
-                    )
-                    .navigationTitle("Choose a photo")
-                    .navigationBarTitleDisplayMode(.inline)
-                    .toolbar {
-                        ToolbarItem(placement: .cancellationAction) {
-                            Button("Cancel") { showingPhotoPicker = false }
-                        }
-                    }
-                }
-            }
         }
     }
 
-    /// Picked photo → square JPEG → Castrater pfp upload (signed by
-    /// the FID's signer, one per FID, no payment) → UserDataAdd (pfp).
-    /// The picked image shows in the panel immediately.
-    private func setPFPFromPicker(_ data: Data) async {
-        photoBusy = true
-        photoStatus = nil
-        defer { photoBusy = false }
+    /// Save the display name: UserDataAdd type 2. Farcaster caps
+    /// display names at 32 characters.
+    private func setDisplayNameFromField() async {
+        let name = displayNameField.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty else {
+            displayNameError = "Enter a display name first."
+            return
+        }
+        guard name.count <= 32 else {
+            displayNameError = "Display names are at most 32 characters."
+            return
+        }
+        displayNameBusy = true
+        displayNameError = nil
+        defer { displayNameBusy = false }
         do {
-            guard let image = UIImage(data: data),
-                  let jpeg = ProfilePhotoService.preparedJPEG(from: image) else {
-                throw PhotoError.badImage
-            }
-            pickedPreview = image
-            let url = try await identity.uploadPFP(jpeg: jpeg)
-            _ = try await identity.setPFP(url: url)
-            pfpURLField = ""
+            _ = try await identity.setDisplayName(name)
         } catch {
-            photoStatus = "Could not set the photo: \(error.localizedDescription)"
+            displayNameError = "Could not set the display name: \(error.localizedDescription)"
         }
     }
 
@@ -408,58 +411,4 @@ struct ProfileView: View {
         }
     }
 
-    private enum PhotoError: Error, LocalizedError {
-        case badImage
-
-        var errorDescription: String? {
-            switch self {
-            case .badImage: return "That photo could not be read."
-            }
-        }
-    }
-}
-
-/// The system photo picker (PHPickerViewController) wrapped so the
-/// sheet it lives in has a Cancel button we own. The plain
-/// `.photosPicker` modifier shows no Cancel on this phone's picker
-/// UI, so there was no way out without picking a photo. Dismissing
-/// with nothing picked calls onCancel; picking calls onPick with the
-/// image bytes.
-private struct PhotoLibraryPicker: UIViewControllerRepresentable {
-    var onPick: (Data) -> Void
-    var onCancel: () -> Void
-
-    func makeUIViewController(context: Context) -> PHPickerViewController {
-        var config = PHPickerConfiguration(photoLibrary: .shared())
-        config.selectionLimit = 1
-        config.filter = .images
-        let picker = PHPickerViewController(configuration: config)
-        picker.delegate = context.coordinator
-        return picker
-    }
-
-    func updateUIViewController(_ uiViewController: PHPickerViewController, context: Context) {}
-
-    func makeCoordinator() -> Coordinator { Coordinator(parent: self) }
-
-    final class Coordinator: NSObject, PHPickerViewControllerDelegate {
-        let parent: PhotoLibraryPicker
-        init(parent: PhotoLibraryPicker) { self.parent = parent }
-
-        func picker(_ picker: PHPickerViewController, didFinishPicking results: [PHPickerResult]) {
-            guard let item = results.first else {
-                parent.onCancel()
-                return
-            }
-            item.itemProvider.loadDataRepresentation(forTypeIdentifier: UTType.image.identifier) { data, _ in
-                DispatchQueue.main.async {
-                    if let data {
-                        self.parent.onPick(data)
-                    } else {
-                        self.parent.onCancel()
-                    }
-                }
-            }
-        }
-    }
 }

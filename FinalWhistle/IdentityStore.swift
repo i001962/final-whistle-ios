@@ -361,6 +361,13 @@ final class IdentityStore: ObservableObject {
         try await setUserData(type: 1, value: url)
     }
 
+    /// Set the display name (UserDataAdd type 2, free-form, max 32
+    /// characters). This is not the username — the username is the
+    /// registered fname, which native FIDs do not have.
+    func setDisplayName(_ name: String) async throws -> String {
+        try await setUserData(type: 2, value: name)
+    }
+
     /// Upload a prepared JPEG as this FID's profile picture: hash it,
     /// sign the binding message with the FID's Ed25519 signer key, and
     /// upload it to Castrater. Returns the public URL, stable per FID.

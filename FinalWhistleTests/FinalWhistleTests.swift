@@ -112,6 +112,20 @@ final class FinalWhistleTests: XCTestCase {
         XCTAssertTrue(StickerStore.shared.addSticker(url: "https://storage.castrater.xyz/v1/public/0123456789abcdef"))
     }
 
+    func testRecoveryKeyNeedsSignIn() async {
+        // The custody key never leaves the Keychain without a signed-in
+        // identity. A fresh store in the test host has no record.
+        let store = IdentityStore()
+        do {
+            _ = try await store.custodyPrivateKeyHex()
+            XCTFail("export should throw when not signed in")
+        } catch IdentityError.notSignedIn {
+            // Expected.
+        } catch {
+            XCTFail("wrong error: \(error)")
+        }
+    }
+
     func testStickerURLPattern() {
         // Hosted-pack shape, Quilcast's stickerPack check with our host.
         let hosted = URL(string: "https://final-whistle.app/st/abcdefgh/0123456789abcdef01234567.webp")!

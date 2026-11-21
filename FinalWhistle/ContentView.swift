@@ -259,6 +259,12 @@ struct ProfileView: View {
     @State private var displayNameField = ""
     @State private var displayNameError: String?
     @State private var displayNameBusy = false
+    // Recovery: the key is only in state after the warning alert,
+    // and only until hidden or the sheet is dismissed.
+    @State private var showingRecoveryWarning = false
+    @State private var recoveryKey: String?
+    @State private var recoveryCopied = false
+    @State private var recoveryError: String?
 
     var body: some View {
         NavigationStack {
@@ -335,10 +341,39 @@ struct ProfileView: View {
                         if let expires = record.signerExpiresAt {
                             LabeledContent("Signer expires", value: expires.formatted(date: .abbreviated, time: .omitted))
                         }
-                        Text("The custody key and signer seed are stored only in this phone's Keychain. They are never shown, logged, or uploaded.")
+                        Text("The custody key and signer seed are stored only in this phone's Keychain. They are never logged or uploaded — the key is only shown when you ask to back it up.")
                             .font(.footnote)
                             .foregroundStyle(.secondary)
                     }
+
+                    Section("Recovery") {
+                        Text("Your custody key is the only way back into this FID. Back it up before you sign out or lose this phone.")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                        if let recoveryKey {
+                            Text(recoveryKey)
+                                .font(.system(.caption, design: .monospaced))
+                                .textSelection(.enabled)
+                            HStack {
+                                Button(recoveryCopied ? "Copied" : "Copy") { copyRecoveryKey() }
+                                Spacer()
+                                Button("Hide") {
+                                    self.recoveryKey = nil
+                                    recoveryCopied = false
+                                }
+                            }
+                        } else {
+                            Button("Show recovery key") { showingRecoveryWarning = true }
+                        }
+                        if let recoveryError {
+                            Text(recoveryError)
+                                .font(.caption)
+                                .foregroundStyle(Color.fwAccent)
+                        }
+                    } footer: {
+                        Text("There is no word phrase for this key — it was generated as raw bytes, so the private key itself is the backup. Anyone who has it can act as this account.")
+                    }
+
                     Section {
                         Button("Sign out", role: .destructive) {
                             confirmingSignOut = true
@@ -373,10 +408,38 @@ struct ProfileView: View {
                 }
                 Button("Cancel", role: .cancel) {}
             }
+            .alert("This key controls your FID", isPresented: $showingRecoveryWarning) {
+                Button("Show key") { revealRecoveryKey() }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text("The private key for FID \(identity.record?.fid.description ?? "this account") lets anyone post and act as this account, and add new signers. Never share it, never paste it into a website or chat, and store it somewhere only you can reach, like a password manager. If you lose it and lose this phone, the FID is gone for good.")
+            }
             .sheet(isPresented: $showingOnboarding) {
                 OnboardingView()
             }
         }
+    }
+
+    /// Reveal the custody private key after the warning alert. The key
+    /// is never logged; it only lives in this view's state until hidden
+    /// or the sheet is dismissed. A brought-your-own FID has no custody
+    /// key on this phone (signer only), so there is nothing to show.
+    private func revealRecoveryKey() {
+        recoveryError = nil
+        recoveryCopied = false
+        do {
+            recoveryKey = try identity.custodyPrivateKeyHex()
+        } catch KeychainStore.KeychainError.notFound {
+            recoveryError = "No custody key is stored on this phone — this FID was signed in with a signer only, so there is nothing to back up here."
+        } catch {
+            recoveryError = "Could not load the recovery key: \(error.localizedDescription)"
+        }
+    }
+
+    private func copyRecoveryKey() {
+        guard let recoveryKey else { return }
+        UIPasteboard.general.string = recoveryKey
+        recoveryCopied = true
     }
 
     /// Save the display name: UserDataAdd type 2. Farcaster caps

@@ -19,7 +19,9 @@ import os
 ///
 /// Custody is immutable in this release and one custody address gets one
 /// native FID. Losing the custody key loses the FID. The app shows the
-/// custody address and never shows the private key or the seed.
+/// custody address; the private key is only shown when the user
+/// explicitly asks to back it up, behind a warning, and is never
+/// logged or uploaded.
 @MainActor
 final class IdentityStore: ObservableObject {
     @Published private(set) var record: IdentityRecord?
@@ -253,6 +255,20 @@ final class IdentityStore: ObservableObject {
     private func signerSeed() throws -> Data {
         guard record != nil else { throw IdentityError.notSignedIn }
         return try KeychainStore.load(account: KeychainStore.signerAccount)
+    }
+
+    /// The custody private key as 0x-prefixed hex, for backup. This is
+    /// the key that controls the FID: custody is immutable and one
+    /// custody address gets one native FID, so losing it loses the FID.
+    /// The caller is responsible for the warning and for never logging
+    /// the value. Throws KeychainError.notFound when this phone holds a
+    /// signer only (a brought-your-own FID), because the custody key
+    /// was never stored here.
+    func custodyPrivateKeyHex() throws -> String {
+        guard record != nil else { throw IdentityError.notSignedIn }
+        let key = try KeychainStore.load(account: KeychainStore.custodyAccount)
+        guard key.count == 32 else { throw IdentityError.badCustody }
+        return "0x" + key.hexString
     }
 
     /// Resolve @username tokens in display text to FIDs, then build the

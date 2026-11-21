@@ -174,6 +174,66 @@ enum HypersnapClient {
         return false
     }
 
+    /// One signer for a FID, as the node reports it. The node tracks
+    /// `lastUsedAt` and computes `expiresAt = lastUsedAt + ttl`, so the
+    /// expiry slides with use: an actively used signer never expires,
+    /// and one that goes quiet for its TTL dies on its own.
+    struct SignerInfo {
+        let publicKey: Data
+        let lastUsedAt: Date?
+        let expiresAt: Date?
+    }
+
+    /// The FID's signers plus its current user nonce. The nonce is what a
+    /// renewal KeyAdd needs: the next KeyAdd must carry a nonce strictly
+    /// greater than this value.
+    struct SignersByFID {
+        let signers: [SignerInfo]
+        let currentUserNonce: UInt32
+    }
+
+    /// GetSignersByFid, fully parsed. Top-level fields: signers 1
+    /// (repeated Signer), current_user_nonce 5. Each Signer: key 2,
+    /// last_used_at 6 (Unix seconds), expires_at 8 (Unix seconds).
+    static func signersByFID(_ fid: UInt64) async throws -> SignersByFID {
+        var request = Data()
+        request.append(Protobuf.varintField(1, fid))
+        let response = try await unary(method: "GetSignersByFid", request: request)
+        var signers: [SignerInfo] = []
+        var currentUserNonce: UInt32 = 0
+        var reader = ProtobufReader(data: response)
+        for field in try reader.readFields() {
+            switch field.field {
+            case 1:
+                guard let signerBytes = field.bytes else { continue }
+                var signerReader = ProtobufReader(data: signerBytes)
+                var key: Data?
+                var lastUsed: UInt64?
+                var expires: UInt64?
+                for signerField in try signerReader.readFields() {
+                    switch signerField.field {
+                    case 2: key = signerField.bytes
+                    case 6: lastUsed = signerField.varint
+                    case 8: expires = signerField.varint
+                    default: break
+                    }
+                }
+                if let key {
+                    signers.append(SignerInfo(
+                        publicKey: key,
+                        lastUsedAt: lastUsed.map { Date(timeIntervalSince1970: TimeInterval($0)) },
+                        expiresAt: expires.map { Date(timeIntervalSince1970: TimeInterval($0)) }
+                    ))
+                }
+            case 5:
+                currentUserNonce = UInt32(field.varint ?? 0)
+            default:
+                break
+            }
+        }
+        return SignersByFID(signers: signers, currentUserNonce: currentUserNonce)
+    }
+
     /// SubmitMessage. Returns the message hash (hex, with 0x) of the submitted message.
     /// The response is the submitted Message; its hash field (2) is read back.
     @discardableResult

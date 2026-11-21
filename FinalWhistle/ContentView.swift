@@ -250,6 +250,10 @@ struct ProfileView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var confirmingSignOut = false
     @State private var showingOnboarding = false
+    // Switching accounts: which FID is being unlocked, and the last
+    // switch error, shown as text only in the Accounts section.
+    @State private var switchingFID: UInt64?
+    @State private var switchError: String?
     // Error text only — the panel says nothing while a save is
     // running or after it succeeds. A stale error clears when a new
     // attempt starts.
@@ -269,6 +273,64 @@ struct ProfileView: View {
     var body: some View {
         NavigationStack {
             List {
+                if identity.identities.isEmpty {
+                    Section {
+                        Text("You are browsing without an account. The feed works, but posting, replies, likes, and recasts need a Hypersnap FID.")
+                        Button("Sign in or create a FID") {
+                            showingOnboarding = true
+                        }
+                        .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+                    }
+                } else {
+                    Section("Accounts") {
+                        ForEach(identity.identities, id: \.fid) { account in
+                            Button { Task { await switchTo(account) } } label: {
+                                HStack(spacing: 12) {
+                                    if let pfpString = account.pfpURL, let pfpURL = URL(string: pfpString) {
+                                        AsyncImage(url: pfpURL) { image in
+                                            image.resizable().scaledToFill()
+                                        } placeholder: {
+                                            Color.fwPanelSoft
+                                        }
+                                        .frame(width: 40, height: 40)
+                                        .clipShape(Circle())
+                                    } else {
+                                        Image(systemName: "person.crop.circle.fill")
+                                            .font(.system(size: 40))
+                                            .foregroundStyle(Color.fwMuted)
+                                    }
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text(account.listTitle)
+                                            .font(.subheadline)
+                                            .fontWeight(.semibold)
+                                            .foregroundStyle(Color.fwText)
+                                        Text("FID \(account.fid.description)")
+                                            .font(.caption)
+                                            .foregroundStyle(Color.fwMuted)
+                                    }
+                                    Spacer()
+                                    if switchingFID == account.fid.value {
+                                        ProgressView()
+                                    } else if account.fid == identity.record?.fid {
+                                        Image(systemName: "checkmark")
+                                            .foregroundStyle(Color.fwLime)
+                                    }
+                                }
+                            }
+                            .disabled(switchingFID != nil)
+                        }
+                        Button { showingOnboarding = true } label: {
+                            Label("Add account", systemImage: "plus.circle")
+                        }
+                        if let switchError {
+                            Text(switchError)
+                                .font(.caption)
+                                .foregroundStyle(Color.fwAccent)
+                        }
+                    } footer: {
+                        Text("Tap an account to switch to it. Switching asks for Face ID or your passcode.")
+                    }
+                }
                 if let record = identity.record {
                     Section("Profile photo") {
                         HStack(spacing: 12) {
@@ -351,7 +413,7 @@ struct ProfileView: View {
                     // which is what the three build errors were. The
                     // title goes in a header closure instead.
                     Section {
-                        Text("Your custody key is the only way back into this FID. Back it up before you sign out or lose this phone.")
+                        Text("Your custody key is the only way back into this FID if you lose this phone. Signing out keeps it in this phone's Keychain, so you can always sign back in here.")
                             .font(.footnote)
                             .foregroundStyle(.secondary)
                         if let recoveryKey {
@@ -386,15 +448,7 @@ struct ProfileView: View {
                         }
                         .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
                     } footer: {
-                        Text("Signing out wipes the custody key and signer seed from the Keychain. Without a saved copy of the custody key, that FID cannot be recovered.")
-                    }
-                } else {
-                    Section {
-                        Text("You are browsing without an account. The feed works, but posting, replies, likes, and recasts need a Hypersnap FID.")
-                        Button("Sign in or create a FID") {
-                            showingOnboarding = true
-                        }
-                        .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+                        Text("Signing out only deactivates this account. Its custody key and signer stay in this phone's Keychain, so tap the account above to sign back in.")
                     }
                 }
             }
@@ -407,10 +461,9 @@ struct ProfileView: View {
                     Button("Done") { dismiss() }
                 }
             }
-            .confirmationDialog("Sign out and wipe the keys from this phone?", isPresented: $confirmingSignOut, titleVisibility: .visible) {
-                Button("Sign out and wipe keys", role: .destructive) {
+            .confirmationDialog("Sign out of this account?", isPresented: $confirmingSignOut, titleVisibility: .visible) {
+                Button("Sign out", role: .destructive) {
                     identity.signOut()
-                    dismiss()
                 }
                 Button("Cancel", role: .cancel) {}
             }
@@ -423,6 +476,23 @@ struct ProfileView: View {
             .sheet(isPresented: $showingOnboarding) {
                 OnboardingView()
             }
+        }
+    }
+
+    /// Switch to an account from the list. Face ID / passcode gates the
+    /// switch (see IdentityStore.switchTo). The sheet stays open so the
+    /// user can pick another account; the feed reloads for the new FID
+    /// on its own.
+    private func switchTo(_ account: IdentityRecord) async {
+        guard switchingFID == nil else { return }
+        guard account.fid != identity.record?.fid else { return }
+        switchingFID = account.fid.value
+        switchError = nil
+        defer { switchingFID = nil }
+        do {
+            try await identity.switchTo(fid: account.fid.value)
+        } catch {
+            switchError = error.localizedDescription
         }
     }
 

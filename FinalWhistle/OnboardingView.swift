@@ -1,8 +1,10 @@
 import SwiftUI
 
-/// Sign-in screen, reached from Account. Two ways in: bring a FID you
-/// already have, or create a free Hypersnap native FID. The feed itself
-/// needs no identity at all, so this screen never blocks opening the app.
+/// Add-account screen, reached from Account. Two ways in: bring a FID you
+/// already have, or create a free Hypersnap native FID. The account joins
+/// the ones already on this phone and becomes the active one. The feed
+/// itself needs no identity at all, so this screen never blocks opening
+/// the app.
 struct OnboardingView: View {
     @EnvironmentObject private var identity: IdentityStore
     @Environment(\.dismiss) private var dismiss
@@ -17,10 +19,10 @@ struct OnboardingView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 20) {
                     VStack(alignment: .leading, spacing: 6) {
-                        Text("Final Whistle")
+                        Text("Add an account")
                             .font(.largeTitle)
                             .fontWeight(.bold)
-                        Text("Football talk on Hypersnap. Bring a FID you already have, or create a free Hypersnap native FID here.")
+                        Text("Football talk on Hypersnap. Bring a FID you already have, or create a free Hypersnap native FID here. It joins the accounts already on this phone, each with its own custody key in the Keychain.")
                             .font(.body)
                             .foregroundStyle(.secondary)
                     }
@@ -51,7 +53,7 @@ struct OnboardingView: View {
 
                     GroupBox("Create a new Hypersnap FID") {
                         VStack(alignment: .leading, spacing: 12) {
-                            Text("Free, Hypersnap only, no ETH, no rented storage. A fresh custody key and signer are generated on this phone. One custody address gets one FID, and custody cannot be changed later, so losing the custody key loses the FID. Native FIDs do not appear on Warpcast.")
+                            Text("Free, Hypersnap only, no ETH, no rented storage. A fresh custody key and signer are generated on this phone, and the new FID is added alongside your other accounts. One custody address gets one FID, and custody cannot be changed later, so losing the custody key loses the FID. Native FIDs do not appear on Warpcast.")
                                 .font(.footnote)
                                 .foregroundStyle(.secondary)
                             if identity.isWorking {
@@ -80,7 +82,7 @@ struct OnboardingView: View {
                 .padding()
             }
             .background(Color.fwBackground)
-            .navigationTitle("Welcome")
+            .navigationTitle("Add account")
             .navigationBarTitleDisplayMode(.inline)
         }
     }

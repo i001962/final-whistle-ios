@@ -1,16 +1,26 @@
 import CryptoKit
 import Foundation
+import LocalAuthentication
 import os
 
-/// Identity: a Hypersnap native FID plus its keys.
+/// Identity: Hypersnap FIDs and their keys, on this phone.
 ///
-/// Two flows, both in the UI:
+/// A device can hold several FIDs, each controlled by its own custody
+/// address. The custody key is the master key and stays in the Keychain,
+/// gated by Face ID / Touch ID / device passcode; the signer seed is a
+/// session key (30-day sliding window) and is not gated, so posting never
+/// prompts. Signing out only deactivates the account: the keys stay, and
+/// tapping the account signs back in. There is no delete-custody in the
+/// app.
+///
+/// Two ways to add an account, both in the UI:
 ///   A. Bring your FID: enter a FID number and the 32-byte Ed25519 signer
 ///      seed (hex) from a prior onboarding. The seed is stored only in the
 ///      Keychain. Verification is real: the user is fetched over HTTP and
 ///      the signer must appear in GetSignersByFid for that FID. If the
 ///      gRPC check cannot run, the identity is NOT stored and no
-///      verification is claimed.
+///      verification is claimed. A brought FID has no custody key on this
+///      phone (signer only), so it cannot make a fresh signer here.
 ///   B. Create a new native FID: fresh custody key + fresh Ed25519 signer
 ///      are generated on the device, PoW is mined, NativeOnboard is
 ///      EIP-712 signed by custody, then a gasless KeyAdd authorises the
@@ -24,6 +34,7 @@ import os
 /// logged or uploaded.
 @MainActor
 final class IdentityStore: ObservableObject {
+    @Published private(set) var identities: [IdentityRecord] = []
     @Published private(set) var record: IdentityRecord?
     @Published private(set) var profile: UserResponse.User?
     @Published private(set) var status: String = ""
@@ -31,14 +42,85 @@ final class IdentityStore: ObservableObject {
     @Published private(set) var lastError: String?
 
     private let logger = Logger(subsystem: "app.final-whistle", category: "identity")
-    private let recordStore = LocalStore<IdentityRecord>(fileName: "identity.json")
+    private let libraryStore = LocalStore<IdentityLibrary>(fileName: "identities.json")
+    private let legacyRecordStore = LocalStore<IdentityRecord>(fileName: "identity.json")
 
     var isSignedIn: Bool { record != nil }
 
     init() {
-        if let saved = try? recordStore.load() {
-            record = saved
+        migrateLegacyIdentityIfNeeded()
+        if let library = try? libraryStore.load() {
+            identities = library.identities
+            if let active = library.activeFID {
+                record = library.identities.first { $0.fid.value == active }
+            }
+        }
+        if record != nil {
             Task { await refreshProfile() }
+        }
+    }
+
+    // MARK: - Library
+
+    private func saveLibrary() throws {
+        let library = IdentityLibrary(version: 1, identities: identities, activeFID: record?.fid.value)
+        try libraryStore.save(library)
+    }
+
+    /// Insert or replace a record in the list, keeping the active copy in
+    /// sync. The list is ordered by creation, oldest first.
+    private func upsertIdentity(_ newRecord: IdentityRecord, makeActive: Bool) {
+        if let index = identities.firstIndex(where: { $0.fid == newRecord.fid }) {
+            identities[index] = newRecord
+        } else {
+            identities.append(newRecord)
+            identities.sort { $0.createdAt < $1.createdAt }
+        }
+        if makeActive {
+            record = newRecord
+            profile = nil
+        } else if record?.fid == newRecord.fid {
+            record = newRecord
+        }
+    }
+
+    /// One-time migration from the single-account layout (identity.json +
+    /// the two legacy Keychain items) to the multi-account library. It
+    /// never deletes an old key until the new one is saved, and it only
+    /// promotes the library once every key that existed has moved. If
+    /// anything fails, the old state stays and the migration retries on
+    /// the next launch. Reading the legacy items never prompts: they were
+    /// saved without user presence.
+    private func migrateLegacyIdentityIfNeeded() {
+        if (try? libraryStore.load()) != nil { return }
+        guard let old = try? legacyRecordStore.load() else { return }
+        let custody = old.custodyAddress
+        var keysOK = true
+        if let custodyKey = try? KeychainStore.load(account: KeychainStore.legacyCustodyAccount) {
+            do {
+                try KeychainStore.save(custodyKey, account: KeychainStore.custodyAccount(for: custody), requiresUserPresence: true)
+                KeychainStore.delete(account: KeychainStore.legacyCustodyAccount)
+            } catch {
+                logger.info("custody key migration failed: \(error.localizedDescription)")
+                keysOK = false
+            }
+        }
+        if let signerSeed = try? KeychainStore.load(account: KeychainStore.legacySignerAccount) {
+            do {
+                try KeychainStore.save(signerSeed, account: KeychainStore.signerAccount(for: custody))
+                KeychainStore.delete(account: KeychainStore.legacySignerAccount)
+            } catch {
+                logger.info("signer seed migration failed: \(error.localizedDescription)")
+                keysOK = false
+            }
+        }
+        guard keysOK else { return }
+        let library = IdentityLibrary(version: 1, identities: [old], activeFID: old.fid.value)
+        do {
+            try libraryStore.save(library)
+            legacyRecordStore.delete()
+        } catch {
+            logger.info("identity library migration failed: \(error.localizedDescription)")
         }
     }
 
@@ -47,7 +129,20 @@ final class IdentityStore: ObservableObject {
     func refreshProfile() async {
         guard let fid = record?.fid else { return }
         do {
-            profile = try await FeedService.user(fid: fid)
+            let user = try await FeedService.user(fid: fid)
+            profile = user
+            // Cache the display info on the record so the account list
+            // can show it without a fetch.
+            if var current = record {
+                let newDisplay = user.displayName
+                let newPFP = user.pfpURL?.absoluteString
+                if current.displayName != newDisplay || current.pfpURL != newPFP {
+                    current.displayName = newDisplay
+                    current.pfpURL = newPFP
+                    upsertIdentity(current, makeActive: false)
+                    try? saveLibrary()
+                }
+            }
         } catch {
             logger.info("profile refresh failed: \(error.localizedDescription)")
         }
@@ -56,6 +151,7 @@ final class IdentityStore: ObservableObject {
     // MARK: - Bring your FID
 
     /// Bring an existing FID + signer seed. Throws on any verification failure.
+    /// The account is added to the list and made active.
     func bringYourFID(fid: UInt64, signerSeedHex: String) async throws {
         isWorking = true
         lastError = nil
@@ -73,17 +169,21 @@ final class IdentityStore: ObservableObject {
         status = "Checking the signer on the node…"
         let active = try await HypersnapClient.signerIsActive(fid: fid, signerPublicKey: signer.publicKey)
         guard active else { throw IdentityError.signerNotActive }
-        // 3. Only now store anything.
-        try KeychainStore.save(seed, account: KeychainStore.signerAccount)
-        let record = IdentityRecord(
+        // 3. Only now store anything. A brought FID has no custody key on
+        // this phone (signer only); the custody address comes from the user.
+        let custodyAddress = user.custodyAddress ?? ""
+        try KeychainStore.save(seed, account: KeychainStore.signerAccount(for: custodyAddress))
+        let newRecord = IdentityRecord(
             fid: FID(fid),
-            custodyAddress: user.custodyAddress ?? "",
+            custodyAddress: custodyAddress,
             signerPublicKeyHex: signer.publicKey.hexString,
             createdAt: Date(),
-            signerExpiresAt: nil // Unknown for a brought identity; the node owns the TTL.
+            signerExpiresAt: nil, // Unknown for a brought identity; the node owns the TTL.
+            displayName: user.displayName,
+            pfpURL: user.pfpURL?.absoluteString
         )
-        try recordStore.save(record)
-        self.record = record
+        upsertIdentity(newRecord, makeActive: true)
+        try saveLibrary()
         self.profile = user
         status = ""
     }
@@ -92,6 +192,7 @@ final class IdentityStore: ObservableObject {
 
     /// Full native onboarding. Progress is reported in `status` so the UI
     /// can show which step is running. Throws on the first failing step.
+    /// The new FID is added to the list and made active.
     func createNewFID() async throws {
         isWorking = true
         lastError = nil
@@ -157,25 +258,27 @@ final class IdentityStore: ObservableObject {
 
         guard let assignedFID = fid else { throw IdentityError.noFIDAssigned }
 
-        // Gasless KeyAdd for the fresh signer.
+        // Gasless KeyAdd for the fresh signer (nonce 1: first signer on a
+        // fresh custody).
         status = "Authorising the signer…"
         try await addSigner(
             fid: assignedFID, custodyPrivateKey: custodyPrivateKey,
             custodyAddress: custodyAddress, signerPublicKey: signerPublicKey, signer: signer
         )
 
-        // Only now persist anything.
-        try KeychainStore.save(custodyPrivateKey, account: KeychainStore.custodyAccount)
-        try KeychainStore.save(signerSeed, account: KeychainStore.signerAccount)
-        let record = IdentityRecord(
+        // Only now persist anything. The custody key is gated by user
+        // presence; the signer seed is a session key and is not gated.
+        try KeychainStore.save(custodyPrivateKey, account: KeychainStore.custodyAccount(for: custodyAddress), requiresUserPresence: true)
+        try KeychainStore.save(signerSeed, account: KeychainStore.signerAccount(for: custodyAddress))
+        let newRecord = IdentityRecord(
             fid: FID(assignedFID),
             custodyAddress: custodyAddress,
             signerPublicKeyHex: signerPublicKey.hexString,
             createdAt: Date(),
             signerExpiresAt: Date().addingTimeInterval(30 * 24 * 3600)
         )
-        try recordStore.save(record)
-        self.record = record
+        upsertIdentity(newRecord, makeActive: true)
+        try saveLibrary()
         status = ""
         await refreshProfile()
     }
@@ -199,15 +302,15 @@ final class IdentityStore: ObservableObject {
     }
 
     /// Gasless KeyAdd. Nonce 1 is correct for a first signer on a fresh
-    /// custody; if this custody already authorised a signer, the node will
-    /// reject it and the error is surfaced, not guessed around.
+    /// custody; a renewal passes the next nonce from the node
+    /// (current_user_nonce + 1), since the node rejects a nonce that is
+    /// not strictly greater than the FID's current value.
     private func addSigner(
         fid: UInt64, custodyPrivateKey: Data, custodyAddress: String,
-        signerPublicKey: Data, signer: Ed25519Signer
+        signerPublicKey: Data, signer: Ed25519Signer, nonce: UInt32 = 1
     ) async throws {
         let deadline = Date().farcasterEpoch + 86_400
         let ttl: UInt32 = 30 * 86_400
-        let nonce: UInt32 = 1
         let scopes: [UInt32] = [1, 2, 3, 4, 5, 6, 11, 12]
         let keyAddHash = Ethereum.keyAddStructHash(
             fid: fid, key: signerPublicKey, keyType: 1, scopes: scopes,
@@ -239,34 +342,134 @@ final class IdentityStore: ObservableObject {
         }
     }
 
+    // MARK: - Switching accounts
+
+    /// Ask for Face ID / Touch ID / device passcode. Used for signer-only
+    /// accounts, which have no custody key to gate the switch on.
+    private func authenticate(reason: String) async throws {
+        let context = LAContext()
+        var error: NSError?
+        guard context.canEvaluatePolicy(.deviceOwnerAuthentication, error: &error) else {
+            throw IdentityError.authenticationUnavailable
+        }
+        do {
+            _ = try await context.evaluatePolicy(.deviceOwnerAuthentication, localizedReason: reason)
+        } catch let error as LAError where error.code == .userCancel {
+            throw IdentityError.authenticationCancelled
+        } catch {
+            throw IdentityError.authenticationFailed
+        }
+    }
+
+    /// Make a fresh signer for an account from its custody key (a new
+    /// KeyAdd with the next user nonce). Used when the stored signer has
+    /// expired after 30 days without use. Returns the new signer seed and
+    /// public key hex.
+    private func renewSigner(fid: UInt64, custodyAddress: String, custodyKey: Data) async throws -> (seed: Data, publicKeyHex: String) {
+        guard Data(hex: custodyAddress) != nil else { throw IdentityError.badCustody }
+        let signer = Ed25519Signer()
+        let info = try await HypersnapClient.signersByFID(fid)
+        try await addSigner(
+            fid: fid, custodyPrivateKey: custodyKey,
+            custodyAddress: custodyAddress, signerPublicKey: signer.publicKey, signer: signer,
+            nonce: info.currentUserNonce + 1
+        )
+        try KeychainStore.save(signer.seed, account: KeychainStore.signerAccount(for: custodyAddress))
+        return (signer.seed, signer.publicKey.hexString)
+    }
+
+    /// Switch to another saved account. Face ID / passcode gates the
+    /// switch: for an account with a custody key on this phone, reading
+    /// the key is what prompts; for a signer-only account, the app asks
+    /// explicitly. If the stored signer has gone quiet for 30 days and
+    /// expired, a fresh signer is made from the custody key. Throws if
+    /// the user cancels the unlock or the signer cannot be renewed.
+    func switchTo(fid: UInt64) async throws {
+        guard let target = identities.first(where: { $0.fid.value == fid }) else {
+            throw IdentityError.notSignedIn
+        }
+        guard target.fid.value != record?.fid.value else { return }
+        status = "Unlocking this account…"
+        // 1. Authenticate. Reading the custody key prompts for Face ID /
+        // passcode (it is gated by user presence). A signer-only account
+        // has no custody key here, so the app asks explicitly instead.
+        var custodyKey: Data?
+        do {
+            custodyKey = try KeychainStore.load(
+                account: KeychainStore.custodyAccount(for: target.custodyAddress),
+                prompt: "Unlock to switch accounts"
+            )
+        } catch KeychainStore.KeychainError.notFound {
+            custodyKey = nil
+            try await authenticate(reason: "Unlock to switch accounts")
+        }
+        // 2. Is the stored signer still active?
+        status = "Checking the signer…"
+        var signerPublicKeyHex = target.signerPublicKeyHex
+        var signerOK = false
+        if let seed = try? KeychainStore.load(account: KeychainStore.signerAccount(for: target.custodyAddress)),
+           let publicKey = Data(hex: signerPublicKeyHex),
+           (try? await HypersnapClient.signerIsActive(fid: fid, signerPublicKey: publicKey)) == true {
+            _ = seed
+            signerOK = true
+        }
+        // 3. If the signer is gone (30 days without use), make a fresh one
+        // from the custody key.
+        if !signerOK {
+            guard let custodyKey else {
+                throw IdentityError.signerNotActive
+            }
+            status = "Making a fresh signer…"
+            let renewed = try await renewSigner(fid: fid, custodyAddress: target.custodyAddress, custodyKey: custodyKey)
+            signerPublicKeyHex = renewed.publicKeyHex
+        }
+        // 4. Activate. The keys stay in the Keychain; only the active
+        // pointer moves. The feed reloads for the new FID on its own
+        // (FeedView watches identity.record).
+        var updated = target
+        updated.signerPublicKeyHex = signerPublicKeyHex
+        updated.signerExpiresAt = Date().addingTimeInterval(30 * 24 * 3600)
+        upsertIdentity(updated, makeActive: true)
+        try saveLibrary()
+        status = ""
+        await refreshProfile()
+    }
+
     // MARK: - Sign out
 
+    /// Sign out of the active account. This only deactivates it: the
+    /// custody key and the signer seed stay in this phone's Keychain, and
+    /// the account stays in the list, so tapping it signs back in (Face
+    /// ID). There is no way to delete a custody key from this app.
     func signOut() {
-        KeychainStore.deleteAllIdentityKeys()
-        recordStore.delete()
         record = nil
         profile = nil
         status = ""
         lastError = nil
+        try? saveLibrary()
     }
 
     // MARK: - Posting and reactions (identity required)
 
     private func signerSeed() throws -> Data {
-        guard record != nil else { throw IdentityError.notSignedIn }
-        return try KeychainStore.load(account: KeychainStore.signerAccount)
+        guard let record else { throw IdentityError.notSignedIn }
+        return try KeychainStore.load(account: KeychainStore.signerAccount(for: record.custodyAddress))
     }
 
     /// The custody private key as 0x-prefixed hex, for backup. This is
     /// the key that controls the FID: custody is immutable and one
     /// custody address gets one native FID, so losing it loses the FID.
-    /// The caller is responsible for the warning and for never logging
-    /// the value. Throws KeychainError.notFound when this phone holds a
-    /// signer only (a brought-your-own FID), because the custody key
-    /// was never stored here.
+    /// Reading it prompts for Face ID / passcode. The caller is
+    /// responsible for the warning and for never logging the value.
+    /// Throws KeychainError.notFound when this phone holds a signer only
+    /// (a brought-your-own FID), because the custody key was never stored
+    /// here.
     func custodyPrivateKeyHex() throws -> String {
-        guard record != nil else { throw IdentityError.notSignedIn }
-        let key = try KeychainStore.load(account: KeychainStore.custodyAccount)
+        guard let record else { throw IdentityError.notSignedIn }
+        let key = try KeychainStore.load(
+            account: KeychainStore.custodyAccount(for: record.custodyAddress),
+            prompt: "Unlock to show the recovery key"
+        )
         guard key.count == 32 else { throw IdentityError.badCustody }
         return "0x" + key.hexString
     }
@@ -396,9 +599,17 @@ final class IdentityStore: ObservableObject {
 
     /// Set the display name (UserDataAdd type 2, free-form, max 32
     /// characters). This is not the username — the username is the
-    /// registered fname, which native FIDs do not have.
+    /// registered fname, which native FIDs do not have. The cached
+    /// display name on the record is updated right away so the account
+    /// list shows it without waiting for the profile refresh.
     func setDisplayName(_ name: String) async throws -> String {
-        try await setUserData(type: 2, value: name)
+        let hash = try await setUserData(type: 2, value: name)
+        if var current = record {
+            current.displayName = name
+            upsertIdentity(current, makeActive: false)
+            try? saveLibrary()
+        }
+        return hash
     }
 
     /// Upload a prepared JPEG as this FID's profile picture: hash it,
@@ -431,6 +642,9 @@ final class IdentityStore: ObservableObject {
         case anchorExpired
         case noFIDAssigned
         case notSignedIn
+        case authenticationUnavailable
+        case authenticationCancelled
+        case authenticationFailed
 
         var errorDescription: String? {
             switch self {
@@ -443,6 +657,9 @@ final class IdentityStore: ObservableObject {
             case .anchorExpired: return "The registration anchor expired while mining. Try again."
             case .noFIDAssigned: return "No FID was assigned within 60 seconds."
             case .notSignedIn: return "Sign in first."
+            case .authenticationUnavailable: return "This phone cannot ask for Face ID or a passcode right now."
+            case .authenticationCancelled: return "Unlock was cancelled."
+            case .authenticationFailed: return "Unlock failed. Try again."
             }
         }
     }

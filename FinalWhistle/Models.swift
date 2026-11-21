@@ -341,7 +341,9 @@ struct UsernameLookupResponse: Codable {
 
 /// Non-secret identity record, stored as JSON in Application Support.
 /// The custody private key and the Ed25519 signer seed are NOT in here;
-/// they live only in the Keychain.
+/// they live only in the Keychain. `displayName` and `pfpURL` are cached
+/// from the profile fetch so the account list can show them without a
+/// fetch; they are nil until the profile has been fetched for this FID.
 struct IdentityRecord: Codable {
     var version: Int = 1
     var fid: FID
@@ -349,6 +351,22 @@ struct IdentityRecord: Codable {
     var signerPublicKeyHex: String
     var createdAt: Date
     var signerExpiresAt: Date?
+    var displayName: String? = nil
+    var pfpURL: String? = nil
+
+    /// What the account list shows: the display name when there is one,
+    /// otherwise the FID fallback ("fid:<fid>").
+    var listTitle: String { displayName ?? fid.fallbackUsername }
+}
+
+/// The saved accounts on this phone, plus which one is active. Stored as
+/// JSON in Application Support ("identities.json"). The keys themselves
+/// are NOT in here; they live only in the Keychain, one per custody
+/// address. Signing out only clears `activeFID`; the accounts stay.
+struct IdentityLibrary: Codable {
+    var version: Int = 1
+    var identities: [IdentityRecord] = []
+    var activeFID: UInt64? = nil
 }
 
 // MARK: - Helpers

@@ -1,10 +1,10 @@
 import SwiftUI
 
-/// Add-account screen, reached from Account. Two ways in: bring a FID you
-/// already have, or create a free Hypersnap native FID. The account joins
-/// the ones already on this phone and becomes the active one. The feed
-/// itself needs no identity at all, so this screen never blocks opening
-/// the app.
+/// Add-account screen, reached from Account. Two ways in: sign in with
+/// an account you already have (account ID + sign-in key), or create a
+/// free new account on this phone. The account joins the ones already
+/// on this phone and becomes the active one. The feed itself needs no
+/// identity at all, so this screen never blocks opening the app.
 struct OnboardingView: View {
     @EnvironmentObject private var identity: IdentityStore
     @Environment(\.dismiss) private var dismiss

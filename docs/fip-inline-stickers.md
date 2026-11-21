@@ -43,6 +43,67 @@ No new message type. No new CastAddBody field. A hub that does not know
 field 3 stores and serves the bytes unchanged (protobuf forward
 compatibility — to be verified against the Hypersnap hub before finalizing).
 
+## Sprite sheets (one embed, many stickers)
+
+One embed per sticker does not scale, and not just for efficiency: a cast
+may carry at most 2 embeds (Farcaster hub validation; a quote counts as one
+slot), so a message could hold at most two inline stickers and no photo.
+A sprite sheet fixes that. It is the icon-font pattern: one image file
+holding a whole pack, with offsets picking out each icon.
+
+1. **The sheet.** One static image (WebP or PNG) holding a grid of square
+   cells. The grid is described by a manifest, not by a fixed layout, so
+   packs can differ.
+2. **The marker.** Embed gains a second optional field:
+
+   ```proto
+   message Embed {
+     string url = 1;
+     CastId cast_id = 2;
+     string sticker_label = 3;
+     // Present when this embed is a sprite sheet. The value is the pack
+     // id (used for caching). A sheet embed is never a single sticker.
+     string sticker_sheet = 4;
+   }
+   ```
+
+   Field 4 is the next unassigned field in Embed. An embed carries either
+   `sticker_label` (one sticker) or `sticker_sheet` (a pack), never both.
+3. **The manifest (label to offset).** The manifest is JSON, fetched from a
+   URL derived from the sheet URL: drop any query or fragment, then replace
+   the extension of the last path segment with `.json` (append `.json` if
+   there is none). E.g. `https://final-whistle.app/st/packs/matchday.webp`
+   becomes `https://final-whistle.app/st/packs/matchday.json`.
+
+   ```json
+   {
+     "version": 1,
+     "columns": 8,
+     "cell": 128,
+     "stickers": { "check": [0, 0], "eyes": [0, 1], "dirty": [1, 3] }
+   }
+   ```
+
+   `columns` is cells per row, `cell` is the cell size in pixels, and each
+   label maps to `[row, column]` (row-major). The sheet image must be
+   `columns * cell` wide and a whole number of rows tall; a manifest that
+   disagrees with the image is invalid and the shortcodes stay literal
+   text. The client fetches the manifest once per sheet URL and caches it
+   keyed by URL. If the fetch fails, the shortcodes render as text.
+4. **Resolution order.** For a shortcode `:label:` a supporting client
+   looks first for a single-sticker embed with `sticker_label` equal to the
+   label, then for a sheet embed whose manifest contains the label (sheets
+   in embed order, first match wins). Otherwise the shortcode is literal
+   text.
+5. **Sheets are static.** A sheet is one still image, so its cells cannot
+   animate independently. Animated stickers stay single embeds, exactly as
+   in the Mechanism section. A cast can mix one sheet and one animated
+   sticker: two embeds, inside the limit.
+6. **A sheet embed is never block-rendered** by a supporting client. If its
+   manifest cannot be fetched, the shortcodes just stay as text. (A client
+   that does not implement this FIP will show the sheet as a picture block,
+   the same degradation as a single sticker.)
+
 ## Rendering (supporting clients)
 
 1. Replace each matched `:label:` with the image, inline, at the text line
@@ -53,7 +114,9 @@ compatibility — to be verified against the Hypersnap hub before finalizing).
    downscale, thumbnail, or re-encode to a static frame; a pipeline that
    strips animation breaks the sticker.
 3. Do not also render a matched embed as a block. A matched embed is
-   consumed inline.
+   consumed inline. A sheet cell renders by cropping the cell rectangle
+   out of the sheet and scaling it to line height, exactly as a single
+   sticker renders.
 4. An embed with a `sticker_label` but no matching shortcode in the text
    renders as a block picture (today's sticker behavior). A shortcode with
    no matching embed renders as literal text `:label:`.
@@ -73,6 +136,11 @@ compatibility — to be verified against the Hypersnap hub before finalizing).
 3. The composer must not attach two embeds with the same `sticker_label` to
    one cast. The shortcode text counts toward the 1024-byte cast limit; the
    embed URL does not.
+4. When the user picks from a pack, the picker attaches the pack's sheet
+   embed once per cast (deduplicated — picking three stickers from one pack
+   still attaches one embed) with `sticker_sheet` set. A cast should carry
+   at most one sheet, so the second embed slot stays free for a photo or an
+   animated sticker.
 4. When Markdown is off, the picker behaves as today (sticker as a
    standalone embed). Inline placement is a Markdown-mode behavior.
 
@@ -103,6 +171,14 @@ Embeds (in order):
 - Non-supporting client: "that tackle was :dirty: and the ref saw :eyes:",
   then three pictures as blocks below.
 
+Sheet example. Text: `lfg :check: :eyes: :dirty:` with one embed:
+`url: https://final-whistle.app/st/packs/matchday.webp,
+sticker_sheet: "matchday"`. The client fetches
+`.../matchday.json`, finds all three labels, and renders three inline cells
+from the one sheet. One embed covers all three codes, and the second embed
+slot is still free. A non-supporting client shows `lfg :check: :eyes:
+:dirty:` plus the sheet as a picture block.
+
 ## Why not offsets (the mention pattern)?
 
 Mentions store byte offsets separately from the text. That works for
@@ -132,7 +208,12 @@ implements.
 
 ## Open questions
 
-1. Confirm the Hypersnap hub preserves unknown Embed field 3 bytes on write
-   and read (expected: yes, protobuf forward compatibility; verify on a dev
-   hub before calling this final).
-2. Confirm field 3 is unassigned in the canonical Embed message.
+1. Confirm the Hypersnap hub preserves unknown Embed fields 3 and 4 on
+   write and read (expected: yes, protobuf forward compatibility; verify on
+   a dev hub before calling this final).
+2. Confirm fields 3 and 4 are unassigned in the canonical Embed message.
+3. Confirm Hypersnap enforces the 2-embed cast limit the same way Farcaster
+   does (hub validation: at most 2 embeds, a quote counting as one slot).
+   If it does not, the sheet is still worth having for fetch and cache
+   efficiency, but it stops being the thing that makes multi-sticker
+   messages possible at all.

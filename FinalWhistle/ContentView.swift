@@ -463,4 +463,3 @@ private struct PhotoLibraryPicker: UIViewControllerRepresentable {
         }
     }
 }
-}

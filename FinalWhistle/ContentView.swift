@@ -346,7 +346,11 @@ struct ProfileView: View {
                             .foregroundStyle(.secondary)
                     }
 
-                    Section("Recovery") {
+                    // A title string and a footer cannot be combined
+                    // in one Section call — there is no such overload,
+                    // which is what the three build errors were. The
+                    // title goes in a header closure instead.
+                    Section {
                         Text("Your custody key is the only way back into this FID. Back it up before you sign out or lose this phone.")
                             .font(.footnote)
                             .foregroundStyle(.secondary)
@@ -370,6 +374,8 @@ struct ProfileView: View {
                                 .font(.caption)
                                 .foregroundStyle(Color.fwAccent)
                         }
+                    } header: {
+                        Text("Recovery")
                     } footer: {
                         Text("There is no word phrase for this key — it was generated as raw bytes, so the private key itself is the backup. Anyone who has it can act as this account.")
                     }

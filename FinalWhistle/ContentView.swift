@@ -1,5 +1,6 @@
 import SwiftUI
 import PhotosUI
+import UniformTypeIdentifiers
 
 /// Programmatic navigation for taps that can't use a NavigationLink:
 /// an @mention inside a cast's text is an AttributedString link, not a
@@ -231,8 +232,10 @@ struct ProfileView: View {
     @State private var confirmingSignOut = false
     @State private var showingOnboarding = false
     @State private var showingPhotoPicker = false
-    @State private var photoItem: PhotosPickerItem?
     @State private var pickedPreview: UIImage?
+    // Error text only — the panel says nothing while an upload is
+    // running or after it succeeds. A stale error clears when a new
+    // attempt starts.
     @State private var photoStatus: String?
     @State private var pfpURLField = ""
     @State private var photoBusy = false
@@ -264,15 +267,17 @@ struct ProfileView: View {
                             }
 
                             VStack(alignment: .leading, spacing: 4) {
-                                Button("Change photo") { showingPhotoPicker = true }
-                                    .disabled(photoBusy)
-                                Text("A square photo from your library. It is hosted, then set as your Farcaster profile picture.")
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
+                                HStack(spacing: 8) {
+                                    Button("Change photo") { showingPhotoPicker = true }
+                                        .disabled(photoBusy)
+                                    if photoBusy {
+                                        ProgressView()
+                                    }
+                                }
                                 if let photoStatus {
                                     Text(photoStatus)
                                         .font(.caption)
-                                        .foregroundStyle(Color.fwMuted)
+                                        .foregroundStyle(Color.fwAccent)
                                 }
                             }
                         }
@@ -339,12 +344,25 @@ struct ProfileView: View {
             .sheet(isPresented: $showingOnboarding) {
                 OnboardingView()
             }
-            .photosPicker(isPresented: $showingPhotoPicker, selection: $photoItem, matching: .images)
-            .onChange(of: showingPhotoPicker) { _, shown in
-                // PhotosPickerItem is not Equatable, so the pick is
-                // handled when the picker dismisses instead.
-                if !shown, let item = photoItem {
-                    Task { await setPFPFromPicker(item) }
+            .sheet(isPresented: $showingPhotoPicker) {
+                // The plain `.photosPicker` sheet shows no Cancel on
+                // this phone, so there was no way out without picking.
+                // This one is our own sheet with a Cancel button.
+                NavigationStack {
+                    PhotoLibraryPicker(
+                        onPick: { data in
+                            showingPhotoPicker = false
+                            Task { await setPFPFromPicker(data) }
+                        },
+                        onCancel: { showingPhotoPicker = false }
+                    )
+                    .navigationTitle("Choose a photo")
+                    .navigationBarTitleDisplayMode(.inline)
+                    .toolbar {
+                        ToolbarItem(placement: .cancellationAction) {
+                            Button("Cancel") { showingPhotoPicker = false }
+                        }
+                    }
                 }
             }
         }
@@ -352,28 +370,23 @@ struct ProfileView: View {
 
     /// Picked photo → square JPEG → Castrater pfp upload (signed by
     /// the FID's signer, one per FID, no payment) → UserDataAdd (pfp).
-    /// The picked image shows in the panel immediately; the node
-    /// takes a moment to serve it everywhere else.
-    private func setPFPFromPicker(_ item: PhotosPickerItem) async {
+    /// The picked image shows in the panel immediately.
+    private func setPFPFromPicker(_ data: Data) async {
         photoBusy = true
-        photoStatus = "Uploading photo…"
+        photoStatus = nil
+        defer { photoBusy = false }
         do {
-            guard let data = try await item.loadTransferable(type: Data.self),
-                  let image = UIImage(data: data),
+            guard let image = UIImage(data: data),
                   let jpeg = ProfilePhotoService.preparedJPEG(from: image) else {
                 throw PhotoError.badImage
             }
             pickedPreview = image
             let url = try await identity.uploadPFP(jpeg: jpeg)
-            photoStatus = "Saving to your profile…"
             _ = try await identity.setPFP(url: url)
-            photoStatus = "Saved. Your new photo shows up as nodes pick it up."
             pfpURLField = ""
         } catch {
             photoStatus = "Could not set the photo: \(error.localizedDescription)"
         }
-        photoBusy = false
-        photoItem = nil
     }
 
     /// A pfp the user already has hosted somewhere: its URL goes
@@ -385,15 +398,14 @@ struct ProfileView: View {
             return
         }
         photoBusy = true
-        photoStatus = "Saving to your profile…"
+        photoStatus = nil
+        defer { photoBusy = false }
         do {
             _ = try await identity.setPFP(url: url)
-            photoStatus = "Saved. Your new photo shows up as nodes pick it up."
             pfpURLField = ""
         } catch {
             photoStatus = "Could not set the photo: \(error.localizedDescription)"
         }
-        photoBusy = false
     }
 
     private enum PhotoError: Error, LocalizedError {
@@ -405,4 +417,50 @@ struct ProfileView: View {
             }
         }
     }
+}
+
+/// The system photo picker (PHPickerViewController) wrapped so the
+/// sheet it lives in has a Cancel button we own. The plain
+/// `.photosPicker` modifier shows no Cancel on this phone's picker
+/// UI, so there was no way out without picking a photo. Dismissing
+/// with nothing picked calls onCancel; picking calls onPick with the
+/// image bytes.
+private struct PhotoLibraryPicker: UIViewControllerRepresentable {
+    var onPick: (Data) -> Void
+    var onCancel: () -> Void
+
+    func makeUIViewController(context: Context) -> PHPickerViewController {
+        var config = PHPickerConfiguration(photoLibrary: .shared())
+        config.selectionLimit = 1
+        config.filter = .images
+        let picker = PHPickerViewController(configuration: config)
+        picker.delegate = context.coordinator
+        return picker
+    }
+
+    func updateUIViewController(_ uiViewController: PHPickerViewController, context: Context) {}
+
+    func makeCoordinator() -> Coordinator { Coordinator(parent: self) }
+
+    final class Coordinator: NSObject, PHPickerViewControllerDelegate {
+        let parent: PhotoLibraryPicker
+        init(parent: PhotoLibraryPicker) { self.parent = parent }
+
+        func picker(_ picker: PHPickerViewController, didFinishPicking results: [PHPickerResult]) {
+            guard let item = results.first else {
+                parent.onCancel()
+                return
+            }
+            item.itemProvider.loadDataRepresentation(forTypeIdentifier: UTType.image.identifier) { data, _ in
+                DispatchQueue.main.async {
+                    if let data {
+                        self.parent.onPick(data)
+                    } else {
+                        self.parent.onCancel()
+                    }
+                }
+            }
+        }
+    }
+}
 }

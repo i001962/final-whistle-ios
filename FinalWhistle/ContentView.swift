@@ -294,34 +294,14 @@ private struct AccountRowView: View {
     }
 }
 
+/// The Account panel, kept deliberately small: the active account and
+/// three rows, each opening one concern on its own screen. Nothing
+/// else is shown until the user asks for it — no add-account, no
+/// re-authorize button, no recovery key, no photo field on this screen.
 struct ProfileView: View {
     @EnvironmentObject private var identity: IdentityStore
     @Environment(\.dismiss) private var dismiss
-    @State private var confirmingSignOut = false
     @State private var showingOnboarding = false
-    // Switching accounts: which FID is being unlocked, and the last
-    // switch error, shown as text only in the Accounts section.
-    @State private var switchingFID: UInt64?
-    @State private var switchError: String?
-    // Authorizing Final Whistle: whether a renewal is running, and the
-    // last authorize error, shown as text only in that section.
-    @State private var authorizeBusy = false
-    @State private var authorizeError: String?
-    // Error text only — the panel says nothing while a save is
-    // running or after it succeeds. A stale error clears when a new
-    // attempt starts.
-    @State private var photoStatus: String?
-    @State private var pfpURLField = ""
-    @State private var photoBusy = false
-    @State private var displayNameField = ""
-    @State private var displayNameError: String?
-    @State private var displayNameBusy = false
-    // Recovery: the key is only in state after the warning alert,
-    // and only until hidden or the sheet is dismissed.
-    @State private var showingRecoveryWarning = false
-    @State private var recoveryKey: String?
-    @State private var recoveryCopied = false
-    @State private var recoveryError: String?
 
     var body: some View {
         NavigationStack {
@@ -334,155 +314,60 @@ struct ProfileView: View {
                         }
                         .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
                     }
-                } else {
-                    // A title string and a footer cannot be combined
-                    // in one Section call — there is no such overload,
-                    // which is what the three ContentView errors were.
-                    // The title goes in a header closure instead.
+                } else if let record = identity.record {
+                    // The active account. Tap it to switch, add, or sign out.
                     Section {
-                        ForEach(identity.identities, id: \.fid) { account in
-                            AccountRowView(
-                                account: account,
-                                isActive: account.fid == identity.record?.fid,
-                                isSwitching: switchingFID == account.fid.value,
-                                isDisabled: switchingFID != nil,
-                                onSelect: { Task { await switchTo(account) } }
-                            )
-                        }
-                        Button { showingOnboarding = true } label: {
-                            Label("Add account", systemImage: "plus.circle")
-                        }
-                        if let switchError {
-                            Text(switchError)
-                                .font(.caption)
-                                .foregroundStyle(Color.fwAccent)
-                        }
-                    } header: {
-                        Text("Accounts")
-                    } footer: {
-                        Text("Tap an account to switch to it. Switching asks for Face ID or your passcode.")
-                    }
-                }
-                if let record = identity.record {
-                    Section("Profile photo") {
-                        HStack(spacing: 12) {
-                            if let pfpURL = identity.profile?.pfpURL {
-                                AsyncImage(url: pfpURL) { image in
-                                    image.resizable().scaledToFill()
-                                } placeholder: {
-                                    Color.fwPanelSoft
+                        NavigationLink {
+                            AccountsView()
+                        } label: {
+                            HStack(spacing: 12) {
+                                if let pfpURL = identity.profile?.pfpURL {
+                                    AsyncImage(url: pfpURL) { image in
+                                        image.resizable().scaledToFill()
+                                    } placeholder: {
+                                        Color.fwPanelSoft
+                                    }
+                                    .frame(width: 48, height: 48)
+                                    .clipShape(Circle())
+                                } else {
+                                    Image(systemName: "person.crop.circle.fill")
+                                        .font(.system(size: 48))
+                                        .foregroundStyle(Color.fwMuted)
                                 }
-                                .frame(width: 64, height: 64)
-                                .clipShape(Circle())
-                            } else {
-                                Image(systemName: "person.crop.circle.fill")
-                                    .font(.system(size: 64))
-                                    .foregroundStyle(Color.fwMuted)
-                            }
-
-                            TextField("Paste an image URL", text: $pfpURLField)
-                                .textInputAutocapitalization(.never)
-                                .autocorrectionDisabled()
-                                .disabled(photoBusy)
-                        }
-
-                        HStack {
-                            Button("Use URL") { Task { await setPFPFromURL() } }
-                                .disabled(photoBusy || pfpURLField.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                            if photoBusy {
-                                ProgressView()
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(record.listTitle)
+                                        .font(.headline)
+                                        .foregroundStyle(Color.fwText)
+                                    Text("FID \(record.fid.description)")
+                                        .font(.caption)
+                                        .foregroundStyle(Color.fwMuted)
+                                }
                             }
                         }
-                        if let photoStatus {
-                            Text(photoStatus)
-                                .font(.caption)
-                                .foregroundStyle(Color.fwAccent)
-                        }
                     }
 
-                    Section("Display name") {
-                        HStack {
-                            TextField("Display name", text: $displayNameField)
-                                .disabled(displayNameBusy)
-                            Button("Save") { Task { await setDisplayNameFromField() } }
-                                .disabled(displayNameBusy || displayNameField.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                            if displayNameBusy {
-                                ProgressView()
-                            }
-                        }
-                        if let displayNameError {
-                            Text(displayNameError)
-                                .font(.caption)
-                                .foregroundStyle(Color.fwAccent)
-                        }
-                    }
-                    .onAppear {
-                        // Prefill with the current name once; what the
-                        // user typed is never overwritten.
-                        if displayNameField.isEmpty {
-                            displayNameField = identity.profile?.displayName ?? ""
-                        }
-                    }
-
-                    Section("Hypersnap identity") {
-                        LabeledContent("FID", value: record.fid.description)
-                        LabeledContent("Username", value: identity.profile?.username ?? record.fid.fallbackUsername)
-                        if let display = identity.profile?.displayName {
-                            LabeledContent("Display name", value: display)
-                        }
-                        LabeledContent("Custody", value: record.custodyAddress)
-                        LabeledContent("Signer", value: String(record.signerPublicKeyHex.prefix(16)) + "…")
-                        Text("The signer is a rolling 30-day window: it renews every time you post, reply, or like, and only expires after 30 days without use.")
-                            .font(.footnote)
-                            .foregroundStyle(.secondary)
-                        Text("The custody key and signer seed are stored only in this phone's Keychain. They are never logged or uploaded — the key is only shown when you ask to back it up.")
-                            .font(.footnote)
-                            .foregroundStyle(.secondary)
-                    }
-
-                    authorizationSection
-
-                    // A title string and a footer cannot be combined
-                    // in one Section call — there is no such overload,
-                    // which is what the three build errors were. The
-                    // title goes in a header closure instead.
                     Section {
-                        Text("Your custody key is the only way back into this FID if you lose this phone. Signing out keeps it in this phone's Keychain, so you can always sign back in here.")
-                            .font(.footnote)
-                            .foregroundStyle(.secondary)
-                        if let recoveryKey {
-                            Text(recoveryKey)
-                                .font(.system(.caption, design: .monospaced))
-                                .textSelection(.enabled)
+                        NavigationLink {
+                            ProfileEditView()
+                        } label: {
+                            Label("Profile", systemImage: "person.circle")
+                        }
+                        NavigationLink {
+                            AuthorizationView()
+                        } label: {
                             HStack {
-                                Button(recoveryCopied ? "Copied" : "Copy") { copyRecoveryKey() }
+                                Label("Authorization", systemImage: "checkmark.seal")
                                 Spacer()
-                                Button("Hide") {
-                                    self.recoveryKey = nil
-                                    recoveryCopied = false
-                                }
+                                Text(identity.isAuthorized ? "Authorized" : "Not authorized")
+                                    .font(.caption)
+                                    .foregroundStyle(identity.isAuthorized ? Color.fwLime : Color.fwAccent)
                             }
-                        } else {
-                            Button("Show recovery key") { showingRecoveryWarning = true }
                         }
-                        if let recoveryError {
-                            Text(recoveryError)
-                                .font(.caption)
-                                .foregroundStyle(Color.fwAccent)
+                        NavigationLink {
+                            RecoveryView()
+                        } label: {
+                            Label("Recovery", systemImage: "key")
                         }
-                    } header: {
-                        Text("Recovery")
-                    } footer: {
-                        Text("There is no word phrase for this key — it was generated as raw bytes, so the private key itself is the backup. Anyone who has it can act as this account.")
-                    }
-
-                    Section {
-                        Button("Sign out", role: .destructive) {
-                            confirmingSignOut = true
-                        }
-                        .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
-                    } footer: {
-                        Text("Signing out only deactivates this account. Its custody key and signer stay in this phone's Keychain, so tap the account above to sign back in.")
                     }
                 }
             }
@@ -495,99 +380,74 @@ struct ProfileView: View {
                     Button("Done") { dismiss() }
                 }
             }
-            .confirmationDialog("Sign out of this account?", isPresented: $confirmingSignOut, titleVisibility: .visible) {
-                Button("Sign out", role: .destructive) {
-                    identity.signOut()
-                }
-                Button("Cancel", role: .cancel) {}
-            }
-            .alert("This key controls your FID", isPresented: $showingRecoveryWarning) {
-                Button("Show key") { revealRecoveryKey() }
-                Button("Cancel", role: .cancel) {}
-            } message: {
-                Text("The private key for FID \(identity.record?.fid.description ?? "this account") lets anyone post and act as this account, and add new signers. Never share it, never paste it into a website or chat, and store it somewhere only you can reach, like a password manager. If you lose it and lose this phone, the FID is gone for good.")
-            }
             .sheet(isPresented: $showingOnboarding) {
                 OnboardingView()
             }
             .task {
-                // Check the active account's authorization on the node
-                // when the panel opens, so the section shows the real
-                // status instead of a stale local date.
+                // So the Authorization row shows the real status without
+                // opening it; the detail screen re-checks on its own.
                 await identity.refreshAuthorization()
             }
         }
     }
+}
 
-    /// The Final Whistle authorization section, kept as its own computed
-    /// property so ProfileView.body stays small enough for the compiler
-    /// to type-check in reasonable time.
-    private var authorizationSection: some View {
-        Section("Final Whistle authorization") {
-            if !identity.authorizationChecked {
-                HStack {
-                    Text("Checking authorization…")
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-                    Spacer()
-                    ProgressView()
+/// Switch, add, and sign out. Reached from the Account panel's
+/// active-account card.
+private struct AccountsView: View {
+    @EnvironmentObject private var identity: IdentityStore
+    @State private var showingOnboarding = false
+    @State private var confirmingSignOut = false
+    @State private var switchingFID: UInt64?
+    @State private var switchError: String?
+
+    var body: some View {
+        List {
+            Section {
+                ForEach(identity.identities, id: \.fid) { account in
+                    AccountRowView(
+                        account: account,
+                        isActive: account.fid == identity.record?.fid,
+                        isSwitching: switchingFID == account.fid.value,
+                        isDisabled: switchingFID != nil,
+                        onSelect: { Task { await switchTo(account) } }
+                    )
                 }
-            } else {
-                if identity.isAuthorized {
-                    Text("Final Whistle can post, reply, like, and recast as this account.")
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-                    if let expires = identity.authorizationExpiresAt {
-                        LabeledContent("Expires if unused", value: expires.formatted(date: .abbreviated, time: .omitted))
-                    }
-                } else {
-                    Text("Final Whistle is not authorized to post as this account. Authorizing makes a fresh signer for the app, good for a 30-day window that renews every time you post.")
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
+                Button { showingOnboarding = true } label: {
+                    Label("Add account", systemImage: "plus.circle")
                 }
-                HStack {
-                    // Two separate Buttons with literal titles: a ternary
-                    // in the title makes the Button overload ambiguous
-                    // (String vs LocalizedStringKey) and the compiler
-                    // cannot pick one.
-                    if identity.isAuthorized {
-                        Button("Re-authorize") { Task { await authorizeApp() } }
-                            .disabled(authorizeBusy)
-                    } else {
-                        Button("Authorize Final Whistle") { Task { await authorizeApp() } }
-                            .disabled(authorizeBusy)
-                    }
-                    if authorizeBusy {
-                        ProgressView()
-                    }
-                }
-                if let authorizeError {
-                    Text(authorizeError)
+                if let switchError {
+                    Text(switchError)
                         .font(.caption)
                         .foregroundStyle(Color.fwAccent)
                 }
+            } header: {
+                Text("Accounts")
+            } footer: {
+                Text("Tap an account to switch to it. Switching asks for Face ID or your passcode.")
             }
-            if let authError = identity.authorizationError {
-                Text("Could not check the authorization: \(authError)")
-                    .font(.caption)
-                    .foregroundStyle(Color.fwAccent)
+
+            Section {
+                Button("Sign out", role: .destructive) {
+                    confirmingSignOut = true
+                }
+                .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+            } footer: {
+                Text("Signing out only deactivates this account. Its custody key and signer stay in this phone's Keychain, so tap the account above to sign back in.")
             }
         }
-    }
-
-    /// Authorize (or re-authorize) Final Whistle for the active account.
-    /// This is the KeyAdd renewal, framed as authorizing the app: it
-    /// makes a fresh signer, so the app can keep posting as the account.
-    /// The error is shown as text only in the authorization section.
-    private func authorizeApp() async {
-        guard !authorizeBusy else { return }
-        authorizeBusy = true
-        authorizeError = nil
-        defer { authorizeBusy = false }
-        do {
-            try await identity.authorizeApp()
-        } catch {
-            authorizeError = error.localizedDescription
+        .scrollContentBackground(.hidden)
+        .background(Color.fwBackground)
+        .navigationTitle("Accounts")
+        .navigationBarTitleDisplayMode(.inline)
+        .confirmationDialog("Sign out of this account?", isPresented: $confirmingSignOut, titleVisibility: .visible) {
+            Button("Sign out", role: .destructive) {
+                identity.signOut()
+            }
+            Button("Cancel", role: .cancel) {}
+        }
+        .sheet(isPresented: $showingOnboarding) {
+            OnboardingView()
         }
     }
 
@@ -605,6 +465,286 @@ struct ProfileView: View {
             try await identity.switchTo(fid: account.fid.value)
         } catch {
             switchError = error.localizedDescription
+        }
+    }
+}
+
+/// Photo and display name. Reached from the Account panel's Profile row.
+private struct ProfileEditView: View {
+    @EnvironmentObject private var identity: IdentityStore
+    @State private var pfpURLField = ""
+    @State private var photoBusy = false
+    @State private var photoStatus: String?
+    @State private var displayNameField = ""
+    @State private var displayNameBusy = false
+    @State private var displayNameError: String?
+
+    var body: some View {
+        List {
+            Section("Profile photo") {
+                HStack(spacing: 12) {
+                    if let pfpURL = identity.profile?.pfpURL {
+                        AsyncImage(url: pfpURL) { image in
+                            image.resizable().scaledToFill()
+                        } placeholder: {
+                            Color.fwPanelSoft
+                        }
+                        .frame(width: 64, height: 64)
+                        .clipShape(Circle())
+                    } else {
+                        Image(systemName: "person.crop.circle.fill")
+                            .font(.system(size: 64))
+                            .foregroundStyle(Color.fwMuted)
+                    }
+                    TextField("Paste an image URL", text: $pfpURLField)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                        .disabled(photoBusy)
+                }
+                HStack {
+                    Button("Use URL") { Task { await setPFPFromURL() } }
+                        .disabled(photoBusy || pfpURLField.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    if photoBusy {
+                        ProgressView()
+                    }
+                }
+                if let photoStatus {
+                    Text(photoStatus)
+                        .font(.caption)
+                        .foregroundStyle(Color.fwAccent)
+                }
+            }
+
+            Section("Display name") {
+                HStack {
+                    TextField("Display name", text: $displayNameField)
+                        .disabled(displayNameBusy)
+                    Button("Save") { Task { await setDisplayNameFromField() } }
+                        .disabled(displayNameBusy || displayNameField.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    if displayNameBusy {
+                        ProgressView()
+                    }
+                }
+                if let displayNameError {
+                    Text(displayNameError)
+                        .font(.caption)
+                        .foregroundStyle(Color.fwAccent)
+                }
+            }
+        }
+        .scrollContentBackground(.hidden)
+        .background(Color.fwBackground)
+        .navigationTitle("Profile")
+        .navigationBarTitleDisplayMode(.inline)
+        .onAppear {
+            // Prefill with the current name once; what the user typed
+            // is never overwritten.
+            if displayNameField.isEmpty {
+                displayNameField = identity.profile?.displayName ?? ""
+            }
+        }
+    }
+
+    /// A pfp the user already has hosted somewhere: its URL goes
+    /// straight into the UserDataAdd, no upload.
+    private func setPFPFromURL() async {
+        let url = pfpURLField.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard url.hasPrefix("https://") else {
+            photoStatus = "That needs to be a full https:// image link."
+            return
+        }
+        photoBusy = true
+        photoStatus = nil
+        defer { photoBusy = false }
+        do {
+            _ = try await identity.setPFP(url: url)
+            pfpURLField = ""
+        } catch {
+            photoStatus = "Could not set the photo: \(error.localizedDescription)"
+        }
+    }
+
+    /// Save the display name: UserDataAdd type 2. Farcaster caps
+    /// display names at 32 characters.
+    private func setDisplayNameFromField() async {
+        let name = displayNameField.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty else {
+            displayNameError = "Enter a display name first."
+            return
+        }
+        guard name.count <= 32 else {
+            displayNameError = "Display names are at most 32 characters."
+            return
+        }
+        displayNameBusy = true
+        displayNameError = nil
+        defer { displayNameBusy = false }
+        do {
+            _ = try await identity.setDisplayName(name)
+        } catch {
+            displayNameError = "Could not set the display name: \(error.localizedDescription)"
+        }
+    }
+}
+
+/// Whether Final Whistle can post as this account, and the identity
+/// behind it. Reached from the Account panel's Authorization row.
+private struct AuthorizationView: View {
+    @EnvironmentObject private var identity: IdentityStore
+    @State private var authorizeBusy = false
+    @State private var authorizeError: String?
+
+    var body: some View {
+        List {
+            Section {
+                if !identity.authorizationChecked {
+                    HStack {
+                        Text("Checking authorization…")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                        Spacer()
+                        ProgressView()
+                    }
+                } else {
+                    if identity.isAuthorized {
+                        Text("Final Whistle can post, reply, like, and recast as this account.")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                        if let expires = identity.authorizationExpiresAt {
+                            LabeledContent("Expires if unused", value: expires.formatted(date: .abbreviated, time: .omitted))
+                        }
+                    } else {
+                        Text("Final Whistle is not authorized to post as this account. Authorizing makes a fresh signer for the app, good for a 30-day window that renews every time you post.")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                    }
+                    HStack {
+                        // Two separate Buttons with literal titles: a ternary
+                        // in the title makes the Button overload ambiguous
+                        // (String vs LocalizedStringKey) and the compiler
+                        // cannot pick one.
+                        if identity.isAuthorized {
+                            Button("Re-authorize") { Task { await authorizeApp() } }
+                                .disabled(authorizeBusy)
+                        } else {
+                            Button("Authorize Final Whistle") { Task { await authorizeApp() } }
+                                .disabled(authorizeBusy)
+                        }
+                        if authorizeBusy {
+                            ProgressView()
+                        }
+                    }
+                    if let authorizeError {
+                        Text(authorizeError)
+                            .font(.caption)
+                            .foregroundStyle(Color.fwAccent)
+                    }
+                }
+                if let authError = identity.authorizationError {
+                    Text("Could not check the authorization: \(authError)")
+                        .font(.caption)
+                        .foregroundStyle(Color.fwAccent)
+                }
+            } header: {
+                Text("Final Whistle authorization")
+            }
+
+            if let record = identity.record {
+                Section("Hypersnap identity") {
+                    LabeledContent("FID", value: record.fid.description)
+                    LabeledContent("Username", value: identity.profile?.username ?? record.fid.fallbackUsername)
+                    if let display = identity.profile?.displayName {
+                        LabeledContent("Display name", value: display)
+                    }
+                    LabeledContent("Custody", value: record.custodyAddress)
+                    LabeledContent("Signer", value: String(record.signerPublicKeyHex.prefix(16)) + "…")
+                    Text("The signer is a rolling 30-day window: it renews every time you post, reply, or like, and only expires after 30 days without use.")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                    Text("The custody key and signer seed are stored only in this phone's Keychain. They are never logged or uploaded — the key is only shown when you ask to back it up.")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
+            }
+        }
+        .scrollContentBackground(.hidden)
+        .background(Color.fwBackground)
+        .navigationTitle("Authorization")
+        .navigationBarTitleDisplayMode(.inline)
+        .task {
+            // Check the active account's authorization on the node when
+            // the screen opens, so it shows the real status instead of
+            // a stale local date.
+            await identity.refreshAuthorization()
+        }
+    }
+
+    /// Authorize (or re-authorize) Final Whistle for the active account.
+    /// This is the KeyAdd renewal, framed as authorizing the app: it
+    /// makes a fresh signer, so the app can keep posting as the account.
+    /// The error is shown as text only in this screen.
+    private func authorizeApp() async {
+        guard !authorizeBusy else { return }
+        authorizeBusy = true
+        authorizeError = nil
+        defer { authorizeBusy = false }
+        do {
+            try await identity.authorizeApp()
+        } catch {
+            authorizeError = error.localizedDescription
+        }
+    }
+}
+
+/// Back up the custody key. Reached from the Account panel's Recovery row.
+private struct RecoveryView: View {
+    @EnvironmentObject private var identity: IdentityStore
+    @State private var showingRecoveryWarning = false
+    @State private var recoveryKey: String?
+    @State private var recoveryCopied = false
+    @State private var recoveryError: String?
+
+    var body: some View {
+        List {
+            Section {
+                Text("Your custody key is the only way back into this FID if you lose this phone. Signing out keeps it in this phone's Keychain, so you can always sign back in here.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                if let recoveryKey {
+                    Text(recoveryKey)
+                        .font(.system(.caption, design: .monospaced))
+                        .textSelection(.enabled)
+                    HStack {
+                        Button(recoveryCopied ? "Copied" : "Copy") { copyRecoveryKey() }
+                        Spacer()
+                        Button("Hide") {
+                            self.recoveryKey = nil
+                            recoveryCopied = false
+                        }
+                    }
+                } else {
+                    Button("Show recovery key") { showingRecoveryWarning = true }
+                }
+                if let recoveryError {
+                    Text(recoveryError)
+                        .font(.caption)
+                        .foregroundStyle(Color.fwAccent)
+                }
+            } header: {
+                Text("Recovery")
+            } footer: {
+                Text("There is no word phrase for this key — it was generated as raw bytes, so the private key itself is the backup. Anyone who has it can act as this account.")
+            }
+        }
+        .scrollContentBackground(.hidden)
+        .background(Color.fwBackground)
+        .navigationTitle("Recovery")
+        .navigationBarTitleDisplayMode(.inline)
+        .alert("This key controls your FID", isPresented: $showingRecoveryWarning) {
+            Button("Show key") { revealRecoveryKey() }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("The private key for FID \(identity.record?.fid.description ?? "this account") lets anyone post and act as this account, and add new signers. Never share it, never paste it into a website or chat, and store it somewhere only you can reach, like a password manager. If you lose it and lose this phone, the FID is gone for good.")
         }
     }
 
@@ -629,46 +769,4 @@ struct ProfileView: View {
         UIPasteboard.general.string = recoveryKey
         recoveryCopied = true
     }
-
-    /// Save the display name: UserDataAdd type 2. Farcaster caps
-    /// display names at 32 characters.
-    private func setDisplayNameFromField() async {
-        let name = displayNameField.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !name.isEmpty else {
-            displayNameError = "Enter a display name first."
-            return
-        }
-        guard name.count <= 32 else {
-            displayNameError = "Display names are at most 32 characters."
-            return
-        }
-        displayNameBusy = true
-        displayNameError = nil
-        defer { displayNameBusy = false }
-        do {
-            _ = try await identity.setDisplayName(name)
-        } catch {
-            displayNameError = "Could not set the display name: \(error.localizedDescription)"
-        }
-    }
-
-    /// A pfp the user already has hosted somewhere: its URL goes
-    /// straight into the UserDataAdd, no upload.
-    private func setPFPFromURL() async {
-        let url = pfpURLField.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard url.hasPrefix("https://") else {
-            photoStatus = "That needs to be a full https:// image link."
-            return
-        }
-        photoBusy = true
-        photoStatus = nil
-        defer { photoBusy = false }
-        do {
-            _ = try await identity.setPFP(url: url)
-            pfpURLField = ""
-        } catch {
-            photoStatus = "Could not set the photo: \(error.localizedDescription)"
-        }
-    }
-
 }

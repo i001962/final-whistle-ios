@@ -220,7 +220,12 @@ struct ContentView: View {
         .background(Color.fwPanel, in: RoundedRectangle(cornerRadius: 22))
         .overlay(RoundedRectangle(cornerRadius: 22).stroke(Color.fwLine, lineWidth: 1))
         .padding(.horizontal, 16)
-        .padding(.vertical, 10)
+        // Sits low so the feed gets the room: a small gap above the
+        // pill, and only 2pt below it — the safe area already clears
+        // the home indicator, so the extra bottom padding was just
+        // dead space eating the feed.
+        .padding(.top, 6)
+        .padding(.bottom, 2)
     }
 }
 

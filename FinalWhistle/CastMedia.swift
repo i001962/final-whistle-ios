@@ -31,18 +31,19 @@ enum CastMedia {
 }
 
 extension Cast {
-    /// The embed URLs worth rendering (Quilcast urlsOf). An image or video
-    /// embed is dropped when the text already shows its URL — the card IS
-    /// the same media, so it would just duplicate it. A link embed is NOT
-    /// dropped: its preview card (thumbnail + title) is information the
-    /// bare text link does not carry, so a YouTube URL pasted in the text
-    /// AND embedded still gets its thumbnail card. Dropping it left the
-    /// cast with only an orange text link and no thumbnail at all.
+    /// The embed URLs worth rendering (Quilcast urlsOf). An embed is
+    /// never dropped just because its URL is also in the text: the text
+    /// shows a truncated orange link, not the picture or the preview
+    /// card, so dropping the embed leaves the cast with only the link
+    /// text and no image at all. That was the Chelsea-logo post — the
+    /// .png was in the embeds AND in the text, the dedup dropped it,
+    /// and nothing rendered. The composer strips an embedded URL out
+    /// of the text on new posts, so the duplication the dedup was
+    /// guarding against does not happen there either.
     var embedURLs: [URL] {
         guard let embeds else { return [] }
         return embeds.compactMap { embed -> URL? in
             guard let raw = embed.url, let url = URL(string: raw) else { return nil }
-            if text.contains(raw) && (CastMedia.isImageURL(url) || CastMedia.isVideoURL(url)) { return nil }
             return url
         }
     }

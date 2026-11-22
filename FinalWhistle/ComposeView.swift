@@ -216,6 +216,12 @@ struct ComposeView: View {
             let link: String?
             if !trimmedLink.isEmpty {
                 link = trimmedLink
+                // If the same link is also in the text, take it out
+                // there too, so the post does not show the URL as text
+                // above the picture or card.
+                sendText = text.replacingOccurrences(of: trimmedLink, with: "")
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                sendText = sendText.replacingOccurrences(of: "\n{3,}", with: "\n\n", options: .regularExpression)
             } else if let detected = firstLinkURL(in: text) {
                 link = detected
                 sendText = text.replacingOccurrences(of: detected, with: "")

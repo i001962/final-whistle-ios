@@ -53,17 +53,21 @@ struct ComposeView: View {
         return nil
     }
 
-    /// Find the first https URL in the text. A pasted link becomes an
-    /// embed on its own — the user does not have to use the link field
-    /// or know what an embed is.
-    private func firstLinkURL(in text: String) -> String? {
-        guard let detector = try? NSDataDetector(types: NSTextCheckingResult.CheckingType.link.rawValue) else { return nil }
+    /// Every https URL in the text, in order, deduped. A pasted link
+    /// becomes an embed on its own — the user does not have to use the
+    /// link field or know what an embed is.
+    private func linkURLs(in text: String) -> [String] {
+        guard let detector = try? NSDataDetector(types: NSTextCheckingResult.CheckingType.link.rawValue) else { return [] }
         let range = NSRange(text.startIndex..., in: text)
-        guard let match = detector.firstMatch(in: text, options: [], range: range),
-              let urlRange = Range(match.range, in: text) else { return nil }
-        let urlString = String(text[urlRange])
-        guard let url = URL(string: urlString), url.scheme == "https", url.host != nil else { return nil }
-        return urlString
+        var urls: [String] = []
+        for match in detector.matches(in: text, options: [], range: range) {
+            guard let urlRange = Range(match.range, in: text) else { continue }
+            let urlString = String(text[urlRange])
+            guard let url = URL(string: urlString), url.scheme == "https", url.host != nil,
+                  !urls.contains(urlString) else { continue }
+            urls.append(urlString)
+        }
+        return urls
     }
 
     private var title: String {
@@ -205,37 +209,36 @@ struct ComposeView: View {
         error = nil
         defer { isPosting = false }
         do {
-            // The link field wins when it is set; otherwise the first
-            // link in the text becomes the embed. A link taken from
-            // the text is removed from the text, so an image URL does
-            // not stay in the text and get deduped out of the embeds
-            // (image embeds are dropped when their URL is in the
-            // text), and the post reads cleanly with the card or
-            // picture below it.
-            var sendText = text
-            let link: String?
+            // Gather link candidates: the explicit link field first,
+            // then every URL in the text, in order. The embed budget
+            // is 2 total; a quote already takes 1, so a quote leaves
+            // room for 1 link and a plain post or reply leaves room
+            // for 2. When the budget is tight the explicit link wins
+            // and the text URLs past the budget stay as text. Every
+            // link that is attached is removed from the text, so the
+            // post does not show the URL as text above the picture
+            // or card.
+            var candidates: [String] = []
             if !trimmedLink.isEmpty {
-                link = trimmedLink
-                // If the same link is also in the text, take it out
-                // there too, so the post does not show the URL as text
-                // above the picture or card.
-                sendText = text.replacingOccurrences(of: trimmedLink, with: "")
-                    .trimmingCharacters(in: .whitespacesAndNewlines)
-                sendText = sendText.replacingOccurrences(of: "\n{3,}", with: "\n\n", options: .regularExpression)
-            } else if let detected = firstLinkURL(in: text) {
-                link = detected
-                sendText = text.replacingOccurrences(of: detected, with: "")
-                    .trimmingCharacters(in: .whitespacesAndNewlines)
-                sendText = sendText.replacingOccurrences(of: "\n{3,}", with: "\n\n", options: .regularExpression)
-            } else {
-                link = nil
+                candidates.append(trimmedLink)
             }
+            for url in linkURLs(in: text) where !candidates.contains(url) {
+                candidates.append(url)
+            }
+            let linkBudget = quoted != nil ? 1 : 2
+            let links = Array(candidates.prefix(linkBudget))
+            var sendText = text
+            for link in links {
+                sendText = sendText.replacingOccurrences(of: link, with: "")
+            }
+            sendText = sendText.trimmingCharacters(in: .whitespacesAndNewlines)
+            sendText = sendText.replacingOccurrences(of: "\n{3,}", with: "\n\n", options: .regularExpression)
             if let parent {
-                _ = try await identity.reply(to: parent, text: sendText, linkURL: link)
+                _ = try await identity.reply(to: parent, text: sendText, linkURLs: links)
             } else if let quoted {
-                _ = try await identity.quote(cast: quoted, text: sendText, linkURL: link)
+                _ = try await identity.quote(cast: quoted, text: sendText, linkURLs: links)
             } else {
-                _ = try await identity.post(text: sendText, linkURL: link)
+                _ = try await identity.post(text: sendText, linkURLs: links)
             }
             // Success: back to the feed at once. The feed refreshes via
             // onPosted, so the new cast is at the top when it lands.

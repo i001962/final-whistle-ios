@@ -209,8 +209,11 @@ struct CastRow: View {
                 Button(action: onQuote) {
                     // Circular arrows, not a speech bubble: the reply
                     // button already is one, and the two looked alike.
-                    // This is a repost, and the count is the recast count.
-                    Label("\(feed.recastsCount(for: cast))", systemImage: "arrow.2.squarepath")
+                    // This is a repost, and the count is the recast
+                    // count. `repeat` (not arrow.2.squarepath): the
+                    // squarepath glyph is wide enough that its tail
+                    // crowded the count and the number read as cut off.
+                    Label("\(feed.recastsCount(for: cast))", systemImage: "repeat")
                         .foregroundStyle(quoted ? Color.fwLime : Color.fwMuted)
                 }
                 .disabled(!identity.isSignedIn)

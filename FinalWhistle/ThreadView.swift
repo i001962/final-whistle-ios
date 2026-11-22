@@ -114,7 +114,10 @@ struct ThreadView: View {
         .toolbar(.hidden, for: .navigationBar)
         .task { await load() }
         .sheet(item: $replyingTo) { target in
-            ComposeView(parent: target, onPosted: { Task { await load() } })
+            ComposeView(parent: target, onPosted: {
+                feed.markReplied(target)
+                Task { await load() }
+            })
                 .presentationDetents([.large])
         }
         .sheet(item: $quoting) { target in

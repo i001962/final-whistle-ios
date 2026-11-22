@@ -118,7 +118,10 @@ struct FeedView: View {
                 .presentationDetents([.medium, .large])
         }
         .sheet(item: $replyingTo) { cast in
-            ComposeView(parent: cast, onPosted: { Task { await feed.refresh(viewerFID: identity.record?.fid) } })
+            ComposeView(parent: cast, onPosted: {
+                feed.markReplied(cast)
+                Task { await feed.refresh(viewerFID: identity.record?.fid) }
+            })
                 .presentationDetents([.large])
         }
         .sheet(item: $quoting) { cast in
@@ -200,14 +203,14 @@ struct CastRow: View {
             // count. The hint was redundant visual noise.
             HStack(spacing: 24) {
                 Button(action: onReply) {
-                    Label("\(cast.replies.count)", systemImage: "bubble.left")
+                    Label("\(feed.repliesCount(for: cast))", systemImage: "bubble.left")
                 }
                 .disabled(!identity.isSignedIn)
                 Button(action: onQuote) {
                     // Circular arrows, not a speech bubble: the reply
                     // button already is one, and the two looked alike.
                     // This is a repost, and the count is the recast count.
-                    Label("\(cast.reactions.recastsCount)", systemImage: "arrow.2.squarepath")
+                    Label("\(feed.recastsCount(for: cast))", systemImage: "arrow.2.squarepath")
                         .foregroundStyle(quoted ? Color.fwLime : Color.fwMuted)
                 }
                 .disabled(!identity.isSignedIn)

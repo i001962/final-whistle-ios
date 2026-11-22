@@ -209,6 +209,10 @@ final class FeedStore: ObservableObject {
     /// Hashes the user toggled this session: a refresh must not undo a
     /// tap the server has not caught up with yet (Quilcast's taps map).
     private var tappedThisSession: Set<String> = []
+    /// Hashes the user replied to this session. The reply count bumps at
+    /// once; the bump is dropped when a refresh shows the server has
+    /// indexed the reply (its count went up). Session-only, not saved.
+    private var repliedHashes: Set<String> = []
     private var mineLoadedForFID: UInt64?
 
     enum LoadState: Equatable {
@@ -239,6 +243,15 @@ final class FeedStore: ObservableObject {
         }
         do {
             let fresh = try await FeedService.football(viewerFID: viewerFID)
+            // A reply the server has now indexed no longer needs its
+            // optimistic bump: drop it where the fresh count went up.
+            let oldCounts = Dictionary(uniqueKeysWithValues: casts.map { ($0.hash.lowercased(), $0.replies.count) })
+            for freshCast in fresh {
+                let key = freshCast.hash.lowercased()
+                if let old = oldCounts[key], freshCast.replies.count > old {
+                    repliedHashes.remove(key)
+                }
+            }
             casts = fresh
             state = fresh.isEmpty ? .empty : .loaded
             try? cache.save(fresh)
@@ -290,6 +303,32 @@ final class FeedStore: ObservableObject {
         return base
     }
 
+    /// The recast count to show, same pattern as the like count: the
+    /// server count, plus one for a quote this session that the server
+    /// has not caught up with yet. Without this the quote button filled
+    /// in but the number sat still until a refresh.
+    func recastsCount(for cast: Cast) -> Int {
+        let base = cast.reactions.recastsCount
+        let serverSaysRecasted = cast.viewerContext?.recasted ?? false
+        if isQuoted(cast) && !serverSaysRecasted { return base + 1 }
+        if !isQuoted(cast) && serverSaysRecasted { return max(0, base - 1) }
+        return base
+    }
+
+    /// The reply count to show: the server count, plus one for a reply
+    /// this session that the server has not indexed yet. The bump is
+    /// dropped in refresh() once the fresh count goes up.
+    func repliesCount(for cast: Cast) -> Int {
+        let base = cast.replies.count
+        return repliedHashes.contains(cast.hash.lowercased()) ? base + 1 : base
+    }
+
+    /// Record a reply so its count bumps at once. Called from the reply
+    /// sheet's onPosted, before the refresh.
+    func markReplied(_ cast: Cast) {
+        repliedHashes.insert(cast.hash.lowercased())
+    }
+
     /// Optimistic like toggle. Returns true when the tap should be sent
     /// to the node (like), false when it should be removed (unlike).
     /// The caller reverts on failure via setLiked.
@@ -313,7 +352,9 @@ final class FeedStore: ObservableObject {
     }
 
     func markQuoted(_ cast: Cast) {
-        quotedHashes.insert(cast.hash.lowercased())
+        let key = cast.hash.lowercased()
+        tappedThisSession.insert(key)
+        quotedHashes.insert(key)
         try? quotedStore.save(quotedHashes)
     }
 }

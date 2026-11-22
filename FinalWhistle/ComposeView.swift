@@ -21,9 +21,12 @@ struct ComposeView: View {
     let quoted: Cast?
     /// Called after a successful post/reply/quote, before dismissing, so
     /// the caller can refresh the feed and show the new cast at the top.
-    var onPosted: (() -> Void)? = nil
+    /// It receives the new cast's hash: the node can take a few seconds
+    /// to index a fresh cast, so the caller polls until that hash shows
+    /// up instead of refreshing once and missing it.
+    var onPosted: ((String) -> Void)? = nil
 
-    init(parent: Cast? = nil, quoted: Cast? = nil, onPosted: (() -> Void)? = nil) {
+    init(parent: Cast? = nil, quoted: Cast? = nil, onPosted: ((String) -> Void)? = nil) {
         self.parent = parent
         self.quoted = quoted
         self.onPosted = onPosted
@@ -238,16 +241,17 @@ struct ComposeView: View {
             }
             sendText = sendText.trimmingCharacters(in: .whitespacesAndNewlines)
             sendText = sendText.replacingOccurrences(of: "\n{3,}", with: "\n\n", options: .regularExpression)
+            let hash: String
             if let parent {
-                _ = try await identity.reply(to: parent, text: sendText, linkURLs: links)
+                hash = try await identity.reply(to: parent, text: sendText, linkURLs: links)
             } else if let quoted {
-                _ = try await identity.quote(cast: quoted, text: sendText, linkURLs: links)
+                hash = try await identity.quote(cast: quoted, text: sendText, linkURLs: links)
             } else {
-                _ = try await identity.post(text: sendText, linkURLs: links)
+                hash = try await identity.post(text: sendText, linkURLs: links)
             }
             // Success: back to the feed at once. The feed refreshes via
             // onPosted, so the new cast is at the top when it lands.
-            onPosted?()
+            onPosted?(hash)
             dismiss()
         } catch {
             self.error = error.localizedDescription

@@ -114,20 +114,20 @@ struct FeedView: View {
             }
         }
         .sheet(isPresented: $showingCompose) {
-            ComposeView(onPosted: { Task { await feed.refresh(viewerFID: identity.record?.fid) } })
+            ComposeView(onPosted: { hash in Task { await refreshUntilVisible(hash: hash) } })
                 .presentationDetents([.medium, .large])
         }
         .sheet(item: $replyingTo) { cast in
-            ComposeView(parent: cast, onPosted: {
+            ComposeView(parent: cast, onPosted: { _ in
                 feed.markReplied(cast)
                 Task { await feed.refresh(viewerFID: identity.record?.fid) }
             })
                 .presentationDetents([.large])
         }
         .sheet(item: $quoting) { cast in
-            ComposeView(quoted: cast, onPosted: {
+            ComposeView(quoted: cast, onPosted: { hash in
                 feed.markQuoted(cast)
-                Task { await feed.refresh(viewerFID: identity.record?.fid) }
+                Task { await refreshUntilVisible(hash: hash) }
             })
             .presentationDetents([.large])
         }
@@ -140,6 +140,23 @@ struct FeedView: View {
         }
         .navigationDestination(item: $selectedQuoted) { cast in
             ThreadView(cast: cast)
+        }
+    }
+
+    /// After posting, the node can take a few seconds to index the new
+    /// cast, so a single refresh right after posting misses it and the
+    /// user sees nothing change. Poll until the new cast's hash shows
+    /// up in the feed, same pattern as the room's reloadUntilVisible.
+    /// A reply is not top-level so it never lands in this feed; only
+    /// top-level posts and quotes use this.
+    private func refreshUntilVisible(hash: String, attempts: Int = 5) async {
+        let key = hash.replacingOccurrences(of: "0x", with: "").lowercased()
+        for attempt in 0..<attempts {
+            if attempt > 0 {
+                try? await Task.sleep(nanoseconds: 2_000_000_000)
+            }
+            await feed.refresh(viewerFID: identity.record?.fid)
+            if feed.casts.contains(where: { $0.hash.lowercased() == key }) { return }
         }
     }
 }

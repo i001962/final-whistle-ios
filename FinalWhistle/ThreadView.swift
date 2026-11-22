@@ -34,8 +34,7 @@ struct ThreadView: View {
                                     onReply: { replyingTo = parent },
                                     onQuote: { quoting = parent },
                                     onOpenQuote: { selectedQuoted = $0 },
-                                    onReacted: { notice = $0 },
-                                    inThread: true
+                                    onReacted: { notice = $0 }
                                 )
                             }
                             .buttonStyle(.plain)
@@ -47,8 +46,7 @@ struct ThreadView: View {
                             onReply: { replyingTo = root },
                             onQuote: { quoting = root },
                             onOpenQuote: { selectedQuoted = $0 },
-                            onReacted: { notice = $0 },
-                            inThread: true
+                            onReacted: { notice = $0 }
                         )
 
                         if identity.isSignedIn {
@@ -194,8 +192,7 @@ struct ThreadNodeView: View {
                     onReply: { onReply(cast) },
                     onQuote: { onQuote(cast) },
                     onOpenQuote: onOpenQuote,
-                    onReacted: onReacted,
-                    inThread: true
+                    onReacted: onReacted
                 )
             }
             .buttonStyle(.plain)

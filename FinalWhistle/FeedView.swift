@@ -151,20 +151,15 @@ struct CastRow: View {
     /// a tap target.
     let onOpenQuote: ((Cast) -> Void)?
     let onReacted: (String) -> Void
-    /// Inside a thread the replies are already on screen, so the
-    /// "View N replies" hint would be silly there.
-    var inThread: Bool = false
     @State private var working = false
 
     init(cast: Cast, onReply: @escaping () -> Void, onQuote: @escaping () -> Void,
-         onOpenQuote: ((Cast) -> Void)? = nil, onReacted: @escaping (String) -> Void,
-         inThread: Bool = false) {
+         onOpenQuote: ((Cast) -> Void)? = nil, onReacted: @escaping (String) -> Void) {
         self.cast = cast
         self.onReply = onReply
         self.onQuote = onQuote
         self.onOpenQuote = onOpenQuote
         self.onReacted = onReacted
-        self.inThread = inThread
     }
 
     private var liked: Bool { feed.isLiked(cast) }
@@ -200,16 +195,9 @@ struct CastRow: View {
 
             CastEmbedsView(cast: cast, onOpenQuote: onOpenQuote)
 
-            if !inThread, cast.replies.count > 0 {
-                HStack(spacing: 4) {
-                    Text("View \(cast.replies.count) \(cast.replies.count == 1 ? "reply" : "replies")")
-                    Image(systemName: "chevron.right")
-                }
-                .font(.footnote)
-                .fontWeight(.semibold)
-                .foregroundStyle(Color.fwAccentSoft)
-            }
-
+            // No "View N replies" hint: the whole card is already a link
+            // to the thread, and the reply button below carries the
+            // count. The hint was redundant visual noise.
             HStack(spacing: 24) {
                 Button(action: onReply) {
                     Label("\(cast.replies.count)", systemImage: "bubble.left")

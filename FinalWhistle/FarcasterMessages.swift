@@ -122,7 +122,8 @@ enum FarcasterMessages {
         text: String, mentions: [UInt64], mentionPositions: [UInt32],
         parentAuthorFID: UInt64?, parentHash: Data?, parentURL: String? = nil,
         quotedCasts: [(fid: UInt64, hash: Data)] = [],
-        imageURLs: [String] = []
+        imageURLs: [String] = [],
+        linkURLs: [String] = []
     ) -> Data {
         var out = Data()
         out.append(Protobuf.packedVarintField(2, mentions))
@@ -150,6 +151,16 @@ enum FarcasterMessages {
             embed.append(Protobuf.stringField(1, url))
             out.append(Protobuf.bytesField(6, embed))
         }
+        // A link embed is the same shape: Embed field 1 = the URL
+        // string. The reader decides what it is by content type — a
+        // page URL renders as a link preview card, an image URL as a
+        // picture. So a link is not appended to the text; it travels
+        // as an embed and the feed draws the card.
+        for url in linkURLs {
+            var embed = Data()
+            embed.append(Protobuf.stringField(1, url))
+            out.append(Protobuf.bytesField(6, embed))
+        }
         if let parentURL {
             out.append(Protobuf.stringField(7, parentURL))
         }
@@ -163,12 +174,14 @@ enum FarcasterMessages {
         text: String, mentions: [UInt64], mentionPositions: [UInt32],
         parentAuthorFID: UInt64?, parentHash: Data?, parentURL: String? = nil,
         quotedCasts: [(fid: UInt64, hash: Data)] = [],
-        imageURLs: [String] = []
+        imageURLs: [String] = [],
+        linkURLs: [String] = []
     ) -> Data {
         let body = castAddBody(
             text: text, mentions: mentions, mentionPositions: mentionPositions,
             parentAuthorFID: parentAuthorFID, parentHash: parentHash,
-            parentURL: parentURL, quotedCasts: quotedCasts, imageURLs: imageURLs
+            parentURL: parentURL, quotedCasts: quotedCasts, imageURLs: imageURLs,
+            linkURLs: linkURLs
         )
         return messageData(type: 1, fid: fid, timestamp: timestamp, bodyField: 5, body: body)
     }

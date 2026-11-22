@@ -30,11 +30,28 @@ struct ComposeView: View {
     }
 
     @State private var text = ""
+    @State private var linkField = ""
     @State private var isPosting = false
     @State private var error: String?
     @FocusState private var editorFocused: Bool
 
     private let maxLength = 320
+
+    /// The link field is optional; when it holds a URL it is attached
+    /// as a link embed, so the feed renders it as a preview card. The
+    /// link does not count toward the 320 characters — it travels as
+    /// an embed, not as text.
+    private var trimmedLink: String {
+        linkField.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private var linkError: String? {
+        guard !trimmedLink.isEmpty else { return nil }
+        guard let url = URL(string: trimmedLink), url.scheme == "https", url.host != nil else {
+            return "That link needs to be a full https:// address."
+        }
+        return nil
+    }
 
     private var title: String {
         if parent != nil { return "Reply" }
@@ -108,6 +125,23 @@ struct ComposeView: View {
                 .contentShape(Rectangle())
                 .onTapGesture { editorFocused = true }
 
+                HStack(spacing: 8) {
+                    Image(systemName: "link")
+                        .foregroundStyle(Color.fwMuted)
+                    TextField("Add a link (optional)", text: $linkField)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                        .keyboardType(.URL)
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 10)
+                .background(Color.fwPanel, in: RoundedRectangle(cornerRadius: 12))
+                if let linkError {
+                    Text(linkError)
+                        .font(.footnote)
+                        .foregroundStyle(.red)
+                }
+
                 HStack {
                     Text("\(text.count)/\(maxLength)")
                         .font(.footnote)
@@ -134,7 +168,7 @@ struct ComposeView: View {
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Post") { Task { await post() } }
                         .disabled(text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                                  || text.count > maxLength || isPosting)
+                                  || text.count > maxLength || isPosting || linkError != nil)
                 }
                 // No keyboard Done button: it only hid the keyboard, so
                 // the sheet stayed open and Cancel was the only real exit
@@ -153,16 +187,18 @@ struct ComposeView: View {
     }
 
     private func post() async {
+        if linkError != nil { return }
         isPosting = true
         error = nil
         defer { isPosting = false }
         do {
+            let link = trimmedLink.isEmpty ? nil : trimmedLink
             if let parent {
-                _ = try await identity.reply(to: parent, text: text)
+                _ = try await identity.reply(to: parent, text: text, linkURL: link)
             } else if let quoted {
-                _ = try await identity.quote(cast: quoted, text: text)
+                _ = try await identity.quote(cast: quoted, text: text, linkURL: link)
             } else {
-                _ = try await identity.post(text: text)
+                _ = try await identity.post(text: text, linkURL: link)
             }
             // Success: back to the feed at once. The feed refreshes via
             // onPosted, so the new cast is at the top when it lands.

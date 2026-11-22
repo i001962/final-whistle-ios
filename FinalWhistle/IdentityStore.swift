@@ -571,7 +571,7 @@ final class IdentityStore: ObservableObject {
     /// hash (0x...). The parent_url is what puts the cast in a feed:
     /// without it the cast goes to the global feed and never shows in
     /// the app's feed or a match room.
-    func post(text: String, parentURL: String) async throws -> String {
+    func post(text: String, parentURL: String, linkURL: String? = nil) async throws -> String {
         guard let fid = record?.fid else { throw IdentityError.notSignedIn }
         let seed = try signerSeed()
         let (stored, fids, positions) = await resolveMentions(in: text)
@@ -579,21 +579,22 @@ final class IdentityStore: ObservableObject {
             fid: fid.value, timestamp: Date().farcasterEpoch,
             text: stored, mentions: fids, mentionPositions: positions,
             parentAuthorFID: nil, parentHash: nil,
-            parentURL: parentURL
+            parentURL: parentURL,
+            linkURLs: linkURL.map { [$0] } ?? []
         )
         let hash = try await HypersnapClient.submitSigned(data: data, fid: fid.value, signerSeed: seed)
         return hash
     }
 
     /// Post a new top-level cast into the /football channel.
-    func post(text: String) async throws -> String {
-        try await post(text: text, parentURL: FarcasterMessages.footballChannelURL)
+    func post(text: String, linkURL: String? = nil) async throws -> String {
+        try await post(text: text, parentURL: FarcasterMessages.footballChannelURL, linkURL: linkURL)
     }
 
     /// Quote-repost a cast: a new top-level cast into /football carrying
     /// the quoted cast as an embed (Quilcast's post() with quote).
     /// This is the app's only repost: there is no plain recast button.
-    func quote(cast: Cast, text: String) async throws -> String {
+    func quote(cast: Cast, text: String, linkURL: String? = nil) async throws -> String {
         guard let fid = record?.fid else { throw IdentityError.notSignedIn }
         guard let quotedHash = Data(hex: cast.hash) else { throw IdentityError.badHash }
         let seed = try signerSeed()
@@ -603,7 +604,8 @@ final class IdentityStore: ObservableObject {
             text: stored, mentions: fids, mentionPositions: positions,
             parentAuthorFID: nil, parentHash: nil,
             parentURL: FarcasterMessages.footballChannelURL,
-            quotedCasts: [(fid: cast.author.fid.value, hash: quotedHash)]
+            quotedCasts: [(fid: cast.author.fid.value, hash: quotedHash)],
+            linkURLs: linkURL.map { [$0] } ?? []
         )
         return try await HypersnapClient.submitSigned(data: data, fid: fid.value, signerSeed: seed)
     }
@@ -626,7 +628,7 @@ final class IdentityStore: ObservableObject {
     }
 
     /// Reply to a cast. parent_cast_id.fid is the PARENT author's FID.
-    func reply(to cast: Cast, text: String) async throws -> String {
+    func reply(to cast: Cast, text: String, linkURL: String? = nil) async throws -> String {
         guard let fid = record?.fid else { throw IdentityError.notSignedIn }
         guard let parentHash = Data(hex: cast.hash) else { throw IdentityError.badHash }
         let seed = try signerSeed()
@@ -634,7 +636,8 @@ final class IdentityStore: ObservableObject {
         let data = FarcasterMessages.castAddData(
             fid: fid.value, timestamp: Date().farcasterEpoch,
             text: stored, mentions: fids, mentionPositions: positions,
-            parentAuthorFID: cast.author.fid.value, parentHash: parentHash
+            parentAuthorFID: cast.author.fid.value, parentHash: parentHash,
+            linkURLs: linkURL.map { [$0] } ?? []
         )
         return try await HypersnapClient.submitSigned(data: data, fid: fid.value, signerSeed: seed)
     }

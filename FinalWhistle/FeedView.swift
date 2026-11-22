@@ -204,7 +204,10 @@ struct CastRow: View {
                 }
                 .disabled(!identity.isSignedIn)
                 Button(action: onQuote) {
-                    Label("\(cast.reactions.recastsCount)", systemImage: "quote.bubble")
+                    // Circular arrows, not a speech bubble: the reply
+                    // button already is one, and the two looked alike.
+                    // This is a repost, and the count is the recast count.
+                    Label("\(cast.reactions.recastsCount)", systemImage: "arrow.2.squarepath")
                         .foregroundStyle(quoted ? Color.fwLime : Color.fwMuted)
                 }
                 .disabled(!identity.isSignedIn)

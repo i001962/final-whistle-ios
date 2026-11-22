@@ -106,23 +106,6 @@ struct ComposeView: View {
                         .foregroundStyle(Color.fwAccentSoft)
                 }
 
-                if let quoted {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("@\(quoted.author.displayUsername)")
-                            .font(.subheadline)
-                            .fontWeight(.semibold)
-                            .foregroundStyle(Color.fwText)
-                        Text(quoted.text)
-                            .font(.subheadline)
-                            .foregroundStyle(.secondary)
-                            .lineLimit(2)
-                    }
-                    .padding(10)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(Color.fwPanelSoft, in: RoundedRectangle(cornerRadius: 12))
-                    .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.fwLine, lineWidth: 1))
-                }
-
                 ZStack(alignment: .topLeading) {
                     if text.isEmpty {
                         Text(placeholder)
@@ -141,6 +124,28 @@ struct ComposeView: View {
                 }
                 .contentShape(Rectangle())
                 .onTapGesture { editorFocused = true }
+
+                if let quoted {
+                    // The quoted cast sits BELOW your words, as an
+                    // attachment, not above them: above reads as a reply
+                    // to it, below reads as a quote of it. That is the
+                    // visual language every other client uses, and the
+                    // "Quoting" label makes it unmistakable.
+                    VStack(alignment: .leading, spacing: 6) {
+                        Label("Quoting @\(quoted.author.displayUsername)", systemImage: "arrow.2.squarepath")
+                            .font(.footnote)
+                            .fontWeight(.semibold)
+                            .foregroundStyle(Color.fwAccentSoft)
+                        Text(quoted.text)
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(2)
+                    }
+                    .padding(10)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(Color.fwPanelSoft, in: RoundedRectangle(cornerRadius: 12))
+                    .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.fwLine, lineWidth: 1))
+                }
 
                 HStack(spacing: 8) {
                     Image(systemName: "link")

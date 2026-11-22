@@ -111,11 +111,11 @@ struct UserProfileView: View {
         .toolbar(.hidden, for: .navigationBar)
         .task { await load() }
         .sheet(item: $replyingTo) { cast in
-            ComposeView(parent: cast, onPosted: { Task { await load() } })
+            ComposeView(parent: cast, onPosted: { _ in Task { await load() } })
                 .presentationDetents([.large])
         }
         .sheet(item: $quoting) { cast in
-            ComposeView(quoted: cast, onPosted: {
+            ComposeView(quoted: cast, onPosted: { _ in
                 feed.markQuoted(cast)
                 Task { await load() }
             })

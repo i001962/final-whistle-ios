@@ -1,16 +1,20 @@
 import SwiftUI
 
-/// Add-account screen, reached from Account. Two ways in: sign in with
-/// an account you already have (account ID + sign-in key), or create a
-/// free new account on this phone. The account joins the ones already
-/// on this phone and becomes the active one. The feed itself needs no
-/// identity at all, so this screen never blocks opening the app.
+/// Add-account screen, reached from Account. Three ways in: sign in
+/// with an account you already have (account ID + sign-in key), sign in
+/// with your recovery key (account ID + custody private key — a fresh
+/// sign-in key is made for this phone), or create a free new account on
+/// this phone. The account joins the ones already on this phone and
+/// becomes the active one. The feed itself needs no identity at all, so
+/// this screen never blocks opening the app.
 struct OnboardingView: View {
     @EnvironmentObject private var identity: IdentityStore
     @Environment(\.dismiss) private var dismiss
 
     @State private var fidText = ""
     @State private var seedText = ""
+    @State private var recoveryFidText = ""
+    @State private var recoveryKeyText = ""
     @State private var error: String?
     @State private var working = false
 
@@ -29,10 +33,16 @@ struct OnboardingView: View {
 
                     GroupBox("I already have an account") {
                         VStack(alignment: .leading, spacing: 12) {
-                            Text("Enter your account ID and the sign-in key from when you set it up. The key stays on this phone only.")
+                            // The sign-in key is the signer seed, NOT the
+                            // recovery key: a custody private key entered
+                            // here used to fail with the node's "signer
+                            // not active" error, because a custody key is
+                            // not a signer. The recovery-key box below is
+                            // the path for that key.
+                            Text("Enter your account ID and the sign-in key from when you set this account up on another device. This is the 64-character sign-in key, not your recovery key.")
                                 .font(.footnote)
                                 .foregroundStyle(.secondary)
-                            TextField("Account ID, for example 4294967310", text: $fidText)
+                            TextField("Account ID (your FID number), for example 4294967310", text: $fidText)
                                 .keyboardType(.numberPad)
                                 .textFieldStyle(.roundedBorder)
                                 .frame(minHeight: 44)
@@ -48,6 +58,30 @@ struct OnboardingView: View {
                             .buttonStyle(.borderedProminent)
                             .frame(minHeight: 44)
                             .disabled(working || fidText.isEmpty || seedText.isEmpty)
+                        }
+                    }
+
+                    GroupBox("Sign in with your recovery key") {
+                        VStack(alignment: .leading, spacing: 12) {
+                            Text("If you only have your recovery key — the private key you backed up from the Account panel — enter it here. Final Whistle checks it belongs to this account, then makes a fresh sign-in key for this phone.")
+                                .font(.footnote)
+                                .foregroundStyle(.secondary)
+                            TextField("Account ID (your FID number), for example 4294967310", text: $recoveryFidText)
+                                .keyboardType(.numberPad)
+                                .textFieldStyle(.roundedBorder)
+                                .frame(minHeight: 44)
+                            SecureField("Recovery key, 64 characters", text: $recoveryKeyText)
+                                .textContentType(.none)
+                                .autocapitalization(.none)
+                                .autocorrectionDisabled()
+                                .textFieldStyle(.roundedBorder)
+                                .frame(minHeight: 44)
+                            Button("Sign in with recovery key") {
+                                Task { await bringYourFIDWithCustody() }
+                            }
+                            .buttonStyle(.borderedProminent)
+                            .frame(minHeight: 44)
+                            .disabled(working || recoveryFidText.isEmpty || recoveryKeyText.isEmpty)
                         }
                     }
 
@@ -106,6 +140,22 @@ struct OnboardingView: View {
         }
         do {
             try await identity.bringYourFID(fid: fid, signerSeedHex: seedText.trimmingCharacters(in: .whitespaces))
+            if identity.isSignedIn { dismiss() }
+        } catch {
+            self.error = error.localizedDescription
+        }
+    }
+
+    private func bringYourFIDWithCustody() async {
+        working = true
+        error = nil
+        defer { working = false }
+        guard let fid = UInt64(recoveryFidText.trimmingCharacters(in: .whitespaces)) else {
+            error = "Enter a numeric account ID."
+            return
+        }
+        do {
+            try await identity.bringYourFIDWithCustody(fid: fid, custodyPrivateKeyHex: recoveryKeyText.trimmingCharacters(in: .whitespaces))
             if identity.isSignedIn { dismiss() }
         } catch {
             self.error = error.localizedDescription

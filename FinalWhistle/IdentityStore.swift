@@ -195,6 +195,59 @@ final class IdentityStore: ObservableObject {
         status = ""
     }
 
+    // MARK: - Bring your FID with the custody (recovery) key
+
+    /// Bring an existing FID with its custody private key — the recovery
+    /// key the user backed up. The custody key proves ownership of the
+    /// account; a fresh signer is made for this phone with a KeyAdd, so
+    /// the user does not need a live signer seed (the old one may have
+    /// expired after 30 days without use, or the user may never have
+    /// saved it). Throws on any verification failure. The account is
+    /// added to the list and made active, with its custody key stored on
+    /// this phone so it can renew its signer again later.
+    func bringYourFIDWithCustody(fid: UInt64, custodyPrivateKeyHex: String) async throws {
+        isWorking = true
+        lastError = nil
+        defer { isWorking = false }
+        status = "Checking the recovery key…"
+        let hex = custodyPrivateKeyHex.trimmingCharacters(in: .whitespaces)
+        guard let custodyKey = Data(hex: hex), custodyKey.count == 32 else {
+            throw IdentityError.badCustodyKey
+        }
+        let custodyAddress = try CustodyKeys.address(privateKey: custodyKey)
+        // 1. The user must exist over HTTP, and the custody key must
+        // belong to this FID. A mismatch means the wrong account ID or
+        // the wrong key — say so plainly instead of the node error.
+        let user = try await FeedService.user(fid: FID(fid))
+        guard user.fid.value == fid else { throw IdentityError.fidMismatch }
+        let nodeCustody = (user.custodyAddress ?? "")
+            .lowercased()
+            .replacingOccurrences(of: "0x", with: "", options: .anchored)
+        let derivedCustody = custodyAddress
+            .lowercased()
+            .replacingOccurrences(of: "0x", with: "", options: .anchored)
+        guard nodeCustody == derivedCustody else { throw IdentityError.custodyMismatch }
+        // 2. Make a fresh signer for this phone (KeyAdd at the next
+        // nonce) and store it. The custody key is stored too, gated by
+        // Face ID / passcode, so the account can renew again later.
+        status = "Making a fresh sign-in key…"
+        let renewed = try await renewSigner(fid: fid, custodyAddress: custodyAddress, custodyKey: custodyKey)
+        try KeychainStore.save(custodyKey, account: KeychainStore.custodyAccount(for: custodyAddress), requiresUserPresence: true)
+        let newRecord = IdentityRecord(
+            fid: FID(fid),
+            custodyAddress: custodyAddress,
+            signerPublicKeyHex: renewed.publicKeyHex,
+            createdAt: Date(),
+            signerExpiresAt: Date().addingTimeInterval(30 * 24 * 60 * 60),
+            displayName: user.displayName,
+            pfpURL: user.pfpURL?.absoluteString
+        )
+        upsertIdentity(newRecord, makeActive: true)
+        try saveLibrary()
+        self.profile = user
+        status = ""
+    }
+
     // MARK: - Create a new native FID
 
     /// Full native onboarding. Progress is reported in `status` so the UI
@@ -718,6 +771,8 @@ final class IdentityStore: ObservableObject {
     enum IdentityError: Error, LocalizedError {
         case badSeed
         case badCustody
+        case badCustodyKey
+        case custodyMismatch
         case badHash
         case fidMismatch
         case signerNotActive
@@ -734,6 +789,8 @@ final class IdentityStore: ObservableObject {
             switch self {
             case .badSeed: return "The signer seed must be 64 hex characters (32 bytes)."
             case .badCustody: return "The custody address is not valid."
+            case .badCustodyKey: return "The recovery key must be 64 hex characters (32 bytes)."
+            case .custodyMismatch: return "That recovery key does not belong to this account ID. Check the account ID and the key."
             case .badHash: return "The cast hash is not valid hex."
             case .fidMismatch: return "The user fetched for that FID does not match."
             case .signerNotActive: return "That signer is not active for this FID on the node."

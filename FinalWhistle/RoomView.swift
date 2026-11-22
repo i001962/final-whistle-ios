@@ -445,8 +445,10 @@ private struct RoomMessageRow: View {
 
                 // Embeds: a sticker draws bare, a photo framed
                 // (CastEmbedsView splits them). A sticker-only message
-                // has no text, so this is the whole message.
-                CastEmbedsView(cast: cast, onOpenQuote: nil)
+                // has no text, so this is the whole message. Stickers
+                // are 48pt here — half the feed's 96pt cap — because
+                // a chat line wants a thumbnail, not a poster.
+                CastEmbedsView(cast: cast, onOpenQuote: nil, stickerSize: 48)
             }
         }
         // Full width — and it has to be HERE, inside the row, not on

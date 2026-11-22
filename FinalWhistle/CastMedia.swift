@@ -67,6 +67,9 @@ struct CastEmbedsView: View {
     /// navigationDestination(item:) — a quoted card must NOT be a
     /// NavigationLink itself (see QuotedCastView).
     let onOpenQuote: ((Cast) -> Void)?
+    /// The sticker cap. The feed uses the default 96pt; the rooms pass
+    /// 48pt so a sticker reads as a thumbnail in a chat line.
+    var stickerSize: CGFloat = 96
     @State private var fullscreenImage: FullscreenImageItem?
 
     /// Sticker embeds render bare (see StickerView); the rest of the
@@ -80,7 +83,7 @@ struct CastEmbedsView: View {
     var body: some View {
         Group {
             ForEach(stickers, id: \.self) { url in
-                StickerView(url: url)
+                StickerView(url: url, maxSize: stickerSize)
             }
 
             if images.count + videos.count > 1 {

@@ -143,6 +143,10 @@ final class StickerStore: ObservableObject {
 /// the image at its natural shape, capped at 160pt, transparency kept.
 struct StickerView: View {
     let url: URL
+    /// The cap on the rendered size. The feed keeps the default 96pt
+    /// (a sticker post is a standalone thing there); the rooms pass
+    /// 48pt, thumbnail scale for a chat line.
+    var maxSize: CGFloat = 96
 
     var body: some View {
         AsyncImage(url: url) { phase in
@@ -161,7 +165,7 @@ struct StickerView: View {
         // IRC-scale, not a poster: 96pt is a big emoji, visible
         // without taking over the chat. 160pt filled the viewport
         // height on a sticker-only message.
-        .frame(maxWidth: 96, maxHeight: 96, alignment: .leading)
+        .frame(maxWidth: maxSize, maxHeight: maxSize, alignment: .leading)
     }
 }
 

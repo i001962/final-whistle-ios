@@ -53,6 +53,19 @@ struct ComposeView: View {
         return nil
     }
 
+    /// Find the first https URL in the text. A pasted link becomes an
+    /// embed on its own — the user does not have to use the link field
+    /// or know what an embed is.
+    private func firstLinkURL(in text: String) -> String? {
+        guard let detector = try? NSDataDetector(types: NSTextCheckingResult.CheckingType.link.rawValue) else { return nil }
+        let range = NSRange(text.startIndex..., in: text)
+        guard let match = detector.firstMatch(in: text, options: [], range: range),
+              let urlRange = Range(match.range, in: text) else { return nil }
+        let urlString = String(text[urlRange])
+        guard let url = URL(string: urlString), url.scheme == "https", url.host != nil else { return nil }
+        return urlString
+    }
+
     private var title: String {
         if parent != nil { return "Reply" }
         if quoted != nil { return "Quote repost" }
@@ -192,13 +205,31 @@ struct ComposeView: View {
         error = nil
         defer { isPosting = false }
         do {
-            let link = trimmedLink.isEmpty ? nil : trimmedLink
-            if let parent {
-                _ = try await identity.reply(to: parent, text: text, linkURL: link)
-            } else if let quoted {
-                _ = try await identity.quote(cast: quoted, text: text, linkURL: link)
+            // The link field wins when it is set; otherwise the first
+            // link in the text becomes the embed. A link taken from
+            // the text is removed from the text, so an image URL does
+            // not stay in the text and get deduped out of the embeds
+            // (image embeds are dropped when their URL is in the
+            // text), and the post reads cleanly with the card or
+            // picture below it.
+            var sendText = text
+            let link: String?
+            if !trimmedLink.isEmpty {
+                link = trimmedLink
+            } else if let detected = firstLinkURL(in: text) {
+                link = detected
+                sendText = text.replacingOccurrences(of: detected, with: "")
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                sendText = sendText.replacingOccurrences(of: "\n{3,}", with: "\n\n", options: .regularExpression)
             } else {
-                _ = try await identity.post(text: text, linkURL: link)
+                link = nil
+            }
+            if let parent {
+                _ = try await identity.reply(to: parent, text: sendText, linkURL: link)
+            } else if let quoted {
+                _ = try await identity.quote(cast: quoted, text: sendText, linkURL: link)
+            } else {
+                _ = try await identity.post(text: sendText, linkURL: link)
             }
             // Success: back to the feed at once. The feed refreshes via
             // onPosted, so the new cast is at the top when it lands.

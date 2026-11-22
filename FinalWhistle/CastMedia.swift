@@ -314,8 +314,13 @@ struct LinkPreviewView: View {
     var body: some View {
         Group {
             if let metadata {
+                // No fixed height: the card sizes itself to the link.
+                // A YouTube video wants a tall card (thumbnail + title)
+                // and a plain article wants a short one; forcing both
+                // to 110pt let the video card overflow its frame and
+                // draw on top of the action row and the next cast.
+                // sizeThatFits in the representable measures it.
                 LPLinkViewRepresentable(metadata: metadata)
-                    .frame(height: 110)
             } else if failed {
                 Link(destination: url) {
                     HStack(spacing: 10) {
@@ -387,6 +392,19 @@ private struct LPLinkViewRepresentable: UIViewRepresentable {
 
     func updateUIView(_ view: LPLinkView, context: Context) {
         view.metadata = metadata
+    }
+
+    /// Ask the link view how tall it wants to be for this width, so
+    /// SwiftUI gives it that height instead of a fixed one. A video
+    /// link is tall (thumbnail + title); an article link is short.
+    /// Without this the view overflowed its frame and overlapped the
+    /// action row and the next cast.
+    func sizeThatFits(_ proposal: ProposedViewSize, uiView: LPLinkView, context: Context) -> CGSize? {
+        let width = proposal.width ?? uiView.bounds.width
+        guard width > 0 else { return nil }
+        let fitting = uiView.sizeThatFits(CGSize(width: width, height: .greatestFiniteMagnitude))
+        guard fitting.height > 0 else { return nil }
+        return CGSize(width: width, height: fitting.height)
     }
 }
 

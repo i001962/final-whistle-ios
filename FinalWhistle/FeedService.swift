@@ -69,6 +69,10 @@ struct FeedService {
         }
         var request = URLRequest(url: url)
         request.timeoutInterval = 20
+        // A refresh must hit the network, not a cached response: the
+        // default protocol cache policy can serve a stale feed and make
+        // pull-to-refresh look like it did nothing.
+        request.cachePolicy = .reloadIgnoringLocalCacheData
         request.setValue("FinalWhistle-iOS/1.0", forHTTPHeaderField: "User-Agent")
         let (data, response) = try await URLSession.shared.data(for: request)
         guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else {

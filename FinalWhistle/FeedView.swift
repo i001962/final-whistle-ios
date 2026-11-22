@@ -26,36 +26,47 @@ struct FeedView: View {
             // top bar next to the account picture (ContentView), and the
             // "Football channel / posted into /football on Hypersnap"
             // text is gone — the feed itself says where you are.
-            switch feed.state {
-            case .loading where feed.casts.isEmpty:
-                ProgressView("Loading the feed…")
-                    .tint(Color.fwLime)
+            //
+            // The ScrollView is always present, with .refreshable on it.
+            // It used to live inside the switch's default case, so
+            // pulling to refresh set state = .loading, the switch
+            // re-evaluated, and the ScrollView was recreated — the pull
+            // gesture never fired, and the feed only refreshed when
+            // navigating away and back (which re-ran .task). Now the
+            // ScrollView has a stable identity and the state only
+            // changes what is inside it.
+            ScrollView {
+                switch feed.state {
+                case .loading where feed.casts.isEmpty:
+                    ProgressView("Loading the feed…")
+                        .tint(Color.fwLime)
+                        .foregroundStyle(Color.fwMuted)
+                        .frame(maxWidth: .infinity, minHeight: 400)
+                case .empty:
+                    ContentUnavailableView(
+                        "No casts yet",
+                        systemImage: "sportscourt",
+                        description: Text("Nothing in the /football channel right now. Pull to refresh.")
+                    )
                     .foregroundStyle(Color.fwMuted)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-            case .empty:
-                ContentUnavailableView(
-                    "No casts yet",
-                    systemImage: "sportscourt",
-                    description: Text("Nothing in the /football channel right now. Pull to refresh.")
-                )
-                .foregroundStyle(Color.fwMuted)
-            case .failed(let message):
-                ContentUnavailableView(
-                    "The feed did not load",
-                    systemImage: "wifi.exclamationmark",
-                    description: Text(message)
-                )
-                .foregroundStyle(Color.fwMuted)
-            default:
-                // ScrollView, not List: a NavigationLink in a List draws
-                // a disclosure chevron on every card. In a ScrollView it
-                // does not, and the link is the native iOS pattern for
-                // opening a thread. The previous onTapGesture on the row
-                // was swallowed by the List and tapping a cast did
-                // nothing, so threads were unreachable. Buttons inside
-                // the label still act as buttons; taps anywhere else
-                // follow the link.
-                ScrollView {
+                    .frame(maxWidth: .infinity, minHeight: 400)
+                case .failed(let message):
+                    ContentUnavailableView(
+                        "The feed did not load",
+                        systemImage: "wifi.exclamationmark",
+                        description: Text(message)
+                    )
+                    .foregroundStyle(Color.fwMuted)
+                    .frame(maxWidth: .infinity, minHeight: 400)
+                default:
+                    // ScrollView, not List: a NavigationLink in a List draws
+                    // a disclosure chevron on every card. In a ScrollView it
+                    // does not, and the link is the native iOS pattern for
+                    // opening a thread. The previous onTapGesture on the row
+                    // was swallowed by the List and tapping a cast did
+                    // nothing, so threads were unreachable. Buttons inside
+                    // the label still act as buttons; taps anywhere else
+                    // follow the link.
                     LazyVStack(spacing: 10) {
                         ForEach(feed.casts) { cast in
                             NavigationLink(value: cast) {
@@ -73,8 +84,8 @@ struct FeedView: View {
                     .padding(.horizontal, 16)
                     .padding(.vertical, 5)
                 }
-                .refreshable { await feed.refresh(viewerFID: identity.record?.fid) }
             }
+            .refreshable { await feed.refresh(viewerFID: identity.record?.fid) }
 
             if let notice {
                 Text(notice)

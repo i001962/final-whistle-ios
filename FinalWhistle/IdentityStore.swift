@@ -193,6 +193,9 @@ final class IdentityStore: ObservableObject {
         try saveLibrary()
         self.profile = user
         status = ""
+        // The signer was just verified active on the node, so the
+        // Authorization row shows Authorized at once.
+        markAuthorized(expiresAt: nil)
     }
 
     // MARK: - Bring your FID with the custody (recovery) key
@@ -246,6 +249,9 @@ final class IdentityStore: ObservableObject {
         try saveLibrary()
         self.profile = user
         status = ""
+        // A fresh signer was just made with a KeyAdd, so the
+        // Authorization row shows Authorized at once.
+        markAuthorized(expiresAt: newRecord.signerExpiresAt)
     }
 
     // MARK: - Create a new native FID
@@ -340,6 +346,9 @@ final class IdentityStore: ObservableObject {
         upsertIdentity(newRecord, makeActive: true)
         try saveLibrary()
         status = ""
+        // A fresh signer was just made with a KeyAdd, so the
+        // Authorization row shows Authorized at once.
+        markAuthorized(expiresAt: newRecord.signerExpiresAt)
         await refreshProfile()
     }
 
@@ -495,6 +504,9 @@ final class IdentityStore: ObservableObject {
         upsertIdentity(updated, makeActive: true)
         try saveLibrary()
         status = ""
+        // The signer was just verified active, or a fresh one was just
+        // made, so the Authorization row shows Authorized at once.
+        markAuthorized(expiresAt: updated.signerExpiresAt)
         await refreshProfile()
     }
 
@@ -517,6 +529,18 @@ final class IdentityStore: ObservableObject {
     }
 
     // MARK: - Authorizing Final Whistle
+
+    /// After a sign-in, a switch, or a renewal, the signer is known
+    /// active — it was just verified on the node or just created with
+    /// a KeyAdd — so the Authorization row can show Authorized at
+    /// once instead of waiting for the next appear-triggered node
+    /// read. The node read still runs on the next appear to confirm.
+    private func markAuthorized(expiresAt: Date?) {
+        authorizationChecked = true
+        isAuthorized = true
+        authorizationExpiresAt = expiresAt
+        authorizationError = nil
+    }
 
     /// Check the active account's authorization on the node: whether its
     /// current signer is active, and when it would expire if unused.

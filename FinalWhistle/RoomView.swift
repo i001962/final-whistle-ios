@@ -347,6 +347,11 @@ struct RoomView: View {
     /// its only embed, replying to the message being answered — or
     /// the room's root cast, like a plain message. Same
     /// wait-for-it-to-land flow as send().
+    /// The sticker goes out as its shortcode (`:packid:emojiconid:`)
+    /// plus the image embed, so it renders inline — large, since the
+    /// text is only the shortcode — on a reader that knows the pack.
+    /// A sticker with no known shortcode (a bare pasted URL) still
+    /// sends as a bare embed, as before.
     private func sendSticker(_ url: String) async {
         guard identity.isSignedIn else { showingProfile = true; return }
         guard !sending else { return }
@@ -358,7 +363,8 @@ struct RoomView: View {
         sendError = nil
         replyingTo = nil
         do {
-            let hash = try await identity.replySticker(to: target, url: url)
+            let shortcode = StickerStore.shared.shortcode(for: url) ?? ""
+            let hash = try await identity.replySticker(to: target, url: url, text: shortcode)
             await reloadUntilVisible(hash: hash)
         } catch {
             sendError = error.localizedDescription

@@ -16,6 +16,64 @@ enum CastTextSegment: Hashable {
     case mention(fid: FID, username: String)
     case channel(name: String)
     case link(url: URL, display: String)
+    /// An inline emoji: `:packid:emojiconid:` in the text whose image
+    /// is one of this cast's embeds. Client-side only (no protocol
+    /// change): the shortcode resolves against the app's sticker
+    /// catalog, and it only renders inline when the resolved URL is
+    /// actually attached to this cast. Otherwise it stays literal text.
+    case emoji(url: URL, alt: String)
+}
+
+/// A `:packid:emojiconid:` shortcode in the text. Pack and sticker ids
+/// use the FIP label charset: `[a-z0-9_][a-z0-9_-]{0,31}`.
+private let shortcodePattern = #":([a-z0-9_][a-z0-9_-]{0,31}):([a-z0-9_][a-z0-9_-]{0,31}):"#
+
+extension Cast {
+    /// The shortcodes in this cast's text that resolve to an image
+    /// embed actually attached to the cast. Each entry is the
+    /// shortcode's range in the raw text plus the resolved image URL.
+    /// A shortcode with no matching embed is literal text, not emoji.
+    var inlineEmojiMatches: [(range: Range<String.Index>, url: URL)] {
+        guard let regex = try? NSRegularExpression(pattern: shortcodePattern) else { return [] }
+        let nsText = text as NSString
+        let matches = regex.matches(in: text, range: NSRange(location: 0, length: nsText.length))
+        var out: [(range: Range<String.Index>, url: URL)] = []
+        for match in matches {
+            guard match.numberOfRanges == 3,
+                  let packRange = Range(match.range(at: 1), in: text),
+                  let stickerRange = Range(match.range(at: 2), in: text),
+                  let fullRange = Range(match.range, in: text)
+            else { continue }
+            let packID = String(text[packRange])
+            let stickerID = String(text[stickerRange])
+            guard let url = StickerStore.shared.stickerURL(packID: packID, stickerID: stickerID),
+                  imageEmbedURLs.contains(url)
+            else { continue }
+            out.append((range: fullRange, url: url))
+        }
+        return out
+    }
+
+    /// The embed URLs consumed by inline emoji in this cast. The
+    /// embeds view skips these so a matched image is not also shown
+    /// as a block below the text.
+    var consumedInlineEmojiURLs: [URL] {
+        inlineEmojiMatches.map(\.url)
+    }
+
+    /// True when the text is nothing but 1–3 inline emoji shortcodes
+    /// (plus whitespace), all resolved to embeds. Per the FIP, those
+    /// render large, at sticker size, instead of at line height.
+    /// Four or more shortcodes render inline.
+    var isShortcodeOnlyEmojiMessage: Bool {
+        let matches = inlineEmojiMatches
+        guard (1...3).contains(matches.count) else { return false }
+        var remainder = text
+        for match in matches {
+            remainder = remainder.replacingCharacters(in: match.range, with: "")
+        }
+        return remainder.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
 }
 
 extension Cast {
@@ -77,7 +135,46 @@ extension Cast {
         return pieces.flatMap { piece -> [CastTextSegment] in
             guard case .text(let string) = piece else { return [piece] }
             return Self.linkify(string)
+        }.flatMap { piece -> [CastTextSegment] in
+            guard case .text(let string) = piece else { return [piece] }
+            return Self.emojify(string, embeds: imageEmbedURLs)
         }
+    }
+
+    /// Split a plain-text piece on `:packid:emojiconid:` shortcodes.
+    /// A shortcode becomes an emoji segment only when it resolves
+    /// (via the sticker catalog) to a URL that is actually one of
+    /// this cast's image embeds. Anything else stays literal text.
+    private static func emojify(_ text: String, embeds: [URL]) -> [CastTextSegment] {
+        guard let regex = try? NSRegularExpression(pattern: shortcodePattern),
+              !embeds.isEmpty
+        else { return [.text(text)] }
+        let nsText = text as NSString
+        let matches = regex.matches(in: text, range: NSRange(location: 0, length: nsText.length))
+        guard !matches.isEmpty else { return [.text(text)] }
+        var out: [CastTextSegment] = []
+        var cursor = text.startIndex
+        for match in matches {
+            guard match.numberOfRanges == 3,
+                  let fullRange = Range(match.range, in: text),
+                  let packRange = Range(match.range(at: 1), in: text),
+                  let stickerRange = Range(match.range(at: 2), in: text)
+            else { continue }
+            let packID = String(text[packRange])
+            let stickerID = String(text[stickerRange])
+            guard let url = StickerStore.shared.stickerURL(packID: packID, stickerID: stickerID),
+                  embeds.contains(url)
+            else { continue }
+            if fullRange.lowerBound > cursor {
+                out.append(.text(String(text[cursor..<fullRange.lowerBound])))
+            }
+            out.append(.emoji(url: url, alt: String(text[fullRange])))
+            cursor = fullRange.upperBound
+        }
+        if cursor < text.endIndex {
+            out.append(.text(String(text[cursor..<text.endIndex])))
+        }
+        return out.isEmpty ? [.text(text)] : out
     }
 
     /// The segments as one AttributedString: mentions and channels in the
@@ -113,6 +210,15 @@ extension Cast {
                 run.foregroundColor = .fwAccentSoft
                 run.underlineStyle = nil
                 run.link = url
+                result.append(run)
+            case .emoji(_, let alt):
+                // The AttributedString path cannot hold an image, so
+                // an emoji renders as its shortcode here. CastTextView
+                // uses the segment path below to draw the real image
+                // inline; this is the fallback if it is not loaded.
+                var run = AttributedString(alt)
+                run.font = font
+                run.foregroundColor = textColor
                 result.append(run)
             }
         }
@@ -159,13 +265,104 @@ extension Cast {
     }
 }
 
-/// A cast's text as a Text view, with tappable @mentions and links.
+/// A cast's text as a Text view, with tappable @mentions and links,
+/// and inline emoji: a `:packid:emojiconid:` shortcode whose image is
+/// one of the cast's embeds renders as the image itself, at line
+/// height, instead of as text. The image loads asynchronously; while
+/// it loads (or if it fails) the shortcode shows as text, per the FIP.
+/// A message that is only 1–3 shortcodes renders no text at all here —
+/// the embeds view below shows those stickers large instead.
 struct CastTextView: View {
     let cast: Cast
     var font: Font = .body
     var textColor: Color = .fwText
+    /// Loaded emoji images, keyed by URL. Filled by the task below.
+    @State private var emojiImages: [URL: UIImage] = [:]
+
+    /// Inline emoji sit at line height: 1.2em on a 17pt body line.
+    private var emojiHeight: CGFloat { 20 }
 
     var body: some View {
-        Text(cast.attributedText(font: font, textColor: textColor))
+        Group {
+            if cast.isShortcodeOnlyEmojiMessage {
+                // Nothing to show as text: the stickers render large
+                // in the embeds view. An empty Text keeps the layout
+                // from collapsing oddly in a VStack.
+                Text("")
+            } else {
+                textWithInlineEmoji
+            }
+        }
+        .task(id: cast.hash) {
+            await loadEmojiImages()
+        }
+    }
+
+    /// The segments as one Text, with emoji segments drawn as the
+    /// loaded image inline. Text and image parts concatenate with
+    /// `+`, and AttributedString runs keep mentions and links
+    /// tappable. An emoji whose image has not loaded yet shows its
+    /// shortcode as text.
+    private var textWithInlineEmoji: Text {
+        var result = Text("")
+        for segment in cast.textSegments {
+            switch segment {
+            case .text(let string):
+                var run = AttributedString(string)
+                run.font = font
+                run.foregroundColor = textColor
+                result = result + Text(run)
+            case .mention(let fid, let username):
+                var run = AttributedString("@\(username)")
+                run.font = font
+                run.foregroundColor = .fwAccentSoft
+                run.underlineStyle = nil
+                run.link = URL(string: "fw://mention/\(fid.value)")
+                result = result + Text(run)
+            case .channel(let name):
+                var run = AttributedString("/\(name)")
+                run.font = font
+                run.foregroundColor = .fwAccentSoft
+                run.underlineStyle = nil
+                result = result + Text(run)
+            case .link(let url, let display):
+                var run = AttributedString(display)
+                run.font = font
+                run.foregroundColor = .fwAccentSoft
+                run.underlineStyle = nil
+                run.link = url
+                result = result + Text(run)
+            case .emoji(let url, let alt):
+                if let image = emojiImages[url] {
+                    result = result + Text(
+                        Image(uiImage: image)
+                            .resizable()
+                            .scaledToFit()
+                            .frame(width: emojiHeight, height: emojiHeight)
+                    )
+                } else {
+                    var run = AttributedString(alt)
+                    run.font = font
+                    run.foregroundColor = textColor
+                    result = result + Text(run)
+                }
+            }
+        }
+        return result
+    }
+
+    /// Fetch the emoji images for this cast's segments. Cached by
+    /// URLSession, so a sticker seen once does not refetch on scroll.
+    private func loadEmojiImages() async {
+        let urls = Set(cast.textSegments.compactMap { segment -> URL? in
+            if case .emoji(let url, _) = segment { return url }
+            return nil
+        })
+        for url in urls where emojiImages[url] == nil {
+            guard let (data, _) = try? await URLSession.shared.data(from: url),
+                  let image = UIImage(data: data)
+            else { continue }
+            emojiImages[url] = image
+        }
     }
 }

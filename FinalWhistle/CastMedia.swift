@@ -74,8 +74,15 @@ struct CastEmbedsView: View {
 
     /// Sticker embeds render bare (see StickerView); the rest of the
     /// pictures keep the framed photo layout.
-    private var stickers: [URL] { cast.imageEmbedURLs.filter(StickerStore.shared.isSticker) }
-    private var images: [URL] { cast.imageEmbedURLs.filter { !StickerStore.shared.isSticker($0) } }
+    /// Embeds consumed by inline emoji are skipped here — they already
+    /// render inside the text — except on a shortcode-only message,
+    /// where the text is empty and the stickers ARE the message, so
+    /// they render large as blocks instead.
+    private var consumedURLs: Set<URL> {
+        cast.isShortcodeOnlyEmojiMessage ? [] : Set(cast.consumedInlineEmojiURLs)
+    }
+    private var stickers: [URL] { cast.imageEmbedURLs.filter { StickerStore.shared.isSticker($0) && !consumedURLs.contains($0) } }
+    private var images: [URL] { cast.imageEmbedURLs.filter { !StickerStore.shared.isSticker($0) && !consumedURLs.contains($0) } }
     private var videos: [URL] { cast.videoEmbedURLs }
     private var links: [URL] { cast.linkEmbedURLs }
     private var quotes: [CastEmbed.CastIDRef] { cast.quotedCasts }

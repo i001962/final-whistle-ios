@@ -691,13 +691,20 @@ final class IdentityStore: ObservableObject {
     /// sticker image as its only embed, parented to the cast (not a
     /// parent URL). Any client shows it as a picture; this app draws
     /// it bare (see StickerView).
-    func replySticker(to cast: Cast, url: String) async throws -> String {
+    /// Send a sticker as a reply: the sticker's shortcode
+    /// (`:packid:emojiconid:`) as the text plus the image as an
+    /// ordinary embed. Client-side inline emoji, no protocol change:
+    /// a reader that knows the pack renders the image inline (or
+    /// large, when the text is only the shortcode); a reader that
+    /// does not just shows the shortcode text plus the picture.
+    /// The text defaults to "" for a bare sticker with no shortcode.
+    func replySticker(to cast: Cast, url: String, text: String = "") async throws -> String {
         guard let fid = record?.fid else { throw IdentityError.notSignedIn }
         guard let parentHash = Data(hex: cast.hash) else { throw IdentityError.badHash }
         let seed = try signerSeed()
         let data = FarcasterMessages.castAddData(
             fid: fid.value, timestamp: Date().farcasterEpoch,
-            text: "", mentions: [], mentionPositions: [],
+            text: text, mentions: [], mentionPositions: [],
             parentAuthorFID: cast.author.fid.value, parentHash: parentHash,
             imageURLs: [url]
         )

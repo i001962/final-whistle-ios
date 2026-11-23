@@ -57,11 +57,78 @@ final class StickerStore: ObservableObject {
         "https://final-whistle.app/st/\(pack)/\(hash).webp"
     }
 
-    /// A URL is a sticker when it is in one of the packs, or when it
-    /// matches the hosted-pack shape (Quilcast's stickerPack check).
+    // MARK: - Built-in packs (static, shipped with the app)
+
+    /// Packs that ship with the app, not entered by the user. Their
+    /// images live at final-whistle.app/st/<pack>/<id>.webp. A sticker
+    /// in a built-in pack renders as a sticker for everyone, even a
+    /// reader who has not added the pack — the pack is the shared
+    /// registry, the same shape as Slack's workspace emoji list.
+    /// The banny art is from footy-fc/d33m (public/assets/banny_*),
+    /// resized to 512px max side and converted to WebP.
+    static let builtInPacks: [StickerPack] = [
+        StickerPack(id: "banny", title: "Banny", stickers: [
+            Sticker(url: "https://final-whistle.app/st/banny/goal.webp", label: "goal"),
+            Sticker(url: "https://final-whistle.app/st/banny/lfg.webp", label: "lfg"),
+            Sticker(url: "https://final-whistle.app/st/banny/popcorn.webp", label: "popcorn"),
+            Sticker(url: "https://final-whistle.app/st/banny/redcard.webp", label: "redcard"),
+            Sticker(url: "https://final-whistle.app/st/banny/stoned.webp", label: "stoned"),
+            Sticker(url: "https://final-whistle.app/st/banny/wow.webp", label: "wow"),
+        ]),
+    ]
+
+    /// All packs the app knows: the user's own plus the built-ins.
+    /// Rendering and shortcode resolution look here, so a built-in
+    /// sticker works for a reader who never added the pack.
+    var allKnownPacks: [StickerPack] { packs + Self.builtInPacks }
+
+    /// Resolve an inline shortcode `:packid:emojiconid:` to its image
+    /// URL, or nil when the pack or the sticker is unknown. The label
+    /// is the sticker id inside its pack.
+    func stickerURL(packID: String, stickerID: String) -> URL? {
+        let packID = packID.lowercased()
+        let stickerID = stickerID.lowercased()
+        for pack in allKnownPacks where pack.id.lowercased() == packID {
+            if let sticker = pack.stickers.first(where: { $0.label.lowercased() == stickerID }),
+               let url = URL(string: sticker.url) {
+                return url
+            }
+        }
+        return nil
+    }
+
+    /// The shortcode for a sticker URL, e.g. `:banny:goal:`, or nil
+    /// when the URL is in no known pack. The sender puts this in the
+    /// cast text and attaches the image as an ordinary embed; the
+    /// reader resolves it back to the same URL.
+    func shortcode(for url: String) -> String? {
+        for pack in allKnownPacks {
+            if let sticker = pack.stickers.first(where: { $0.url == url }) {
+                return ":\(pack.id):\(sticker.label):"
+            }
+        }
+        return nil
+    }
+
+    /// Copy a built-in pack into the user's packs, so it shows in the
+    /// picker and can be managed. Returns false when the pack is
+    /// already added or unknown.
+    @discardableResult
+    func addPack(id: String) -> Bool {
+        guard let pack = Self.builtInPacks.first(where: { $0.id == id }),
+              !packs.contains(where: { $0.id == id })
+        else { return false }
+        packs.append(pack)
+        try? store.save(packs)
+        return true
+    }
+
+    /// A URL is a sticker when it is in one of the packs (the user's
+    /// or a built-in), or when it matches the hosted-pack shape
+    /// (Quilcast's stickerPack check).
     func isSticker(_ url: URL) -> Bool {
         let string = url.absoluteString
-        if packs.flatMap(\.stickers).contains(where: { $0.url == string }) {
+        if allKnownPacks.flatMap(\.stickers).contains(where: { $0.url == string }) {
             return true
         }
         return string.range(
@@ -336,6 +403,14 @@ private struct ManageStickersView: View {
         store.packs.isEmpty ? [] : store.packs[0].stickers
     }
 
+    /// Built-in packs the user has not added yet. Adding one copies
+    /// the whole pack into the user's stickers at once.
+    private var availablePacks: [StickerPack] {
+        StickerStore.builtInPacks.filter { pack in
+            !store.packs.contains(where: { $0.id == pack.id })
+        }
+    }
+
     var body: some View {
         List {
             Section {
@@ -397,6 +472,35 @@ private struct ManageStickersView: View {
                 }
             } footer: {
                 Text("Puts the stickers you send most at the top.")
+            }
+
+            // Built-in packs, one tap to add the whole pack at once
+            // instead of pasting image links one at a time. A pack
+            // already in the list does not show here.
+            if !availablePacks.isEmpty {
+                Section {
+                    ForEach(availablePacks) { pack in
+                        HStack {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(pack.title)
+                                    .font(.subheadline)
+                                    .foregroundStyle(Color.fwText)
+                                Text("\(pack.stickers.count) stickers")
+                                    .font(.caption)
+                                    .foregroundStyle(Color.fwMuted)
+                            }
+                            Spacer()
+                            Button("Add pack") {
+                                store.addPack(id: pack.id)
+                            }
+                            .foregroundStyle(Color.fwAccent)
+                        }
+                    }
+                } header: {
+                    Text("Sticker packs")
+                } footer: {
+                    Text("Adds the whole pack to your stickers at once, so you can send any of them from the picker.")
+                }
             }
         }
         .scrollContentBackground(.hidden)

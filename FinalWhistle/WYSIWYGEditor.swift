@@ -70,29 +70,41 @@ struct WYSIWYGEditor: UIViewRepresentable {
     var placeholder: String = ""
     var font: UIFont = .preferredFont(forTextStyle: .body)
     var textColor: UIColor = .label
-    /// Single-line mode (the room): Return sends instead of a newline.
-    var isSingleLine: Bool = false
+    /// Chat-composer mode (the room): Return sends the message
+    /// instead of inserting a newline, and the keyboard shows a Send
+    /// key. The field still grows to show the whole draft — it wraps
+    /// and expands up to the height the parent allows, so a long
+    /// message is never truncated to "..." while typing. It just
+    /// never inserts a newline from the keyboard.
+    var sendOnReturn: Bool = false
     var onCommit: (() -> Void)? = nil
     /// Focus, driven by the parent (the composer autofocuses the
     /// editor when it appears, so the keyboard is already up).
     @Binding var isFocused: Bool
+    /// When set, the editor reports its content height here, so the
+    /// parent can grow the field to fit the text (the room composer).
+    /// Nil means the parent sizes the field itself (the feed composer
+    /// uses a fixed minimum height).
+    var contentHeight: Binding<CGFloat>? = nil
 
     init(
         text: Binding<String>,
         placeholder: String = "",
         font: UIFont = .preferredFont(forTextStyle: .body),
         textColor: UIColor = .label,
-        isSingleLine: Bool = false,
+        sendOnReturn: Bool = false,
         onCommit: (() -> Void)? = nil,
-        isFocused: Binding<Bool>
+        isFocused: Binding<Bool>,
+        contentHeight: Binding<CGFloat>? = nil
     ) {
         self._text = text
         self.placeholder = placeholder
         self.font = font
         self.textColor = textColor
-        self.isSingleLine = isSingleLine
+        self.sendOnReturn = sendOnReturn
         self.onCommit = onCommit
         self._isFocused = isFocused
+        self.contentHeight = contentHeight
     }
 
     func makeCoordinator() -> Coordinator {
@@ -111,17 +123,13 @@ struct WYSIWYGEditor: UIViewRepresentable {
         // UITextView grows to fit its content and SwiftUI gives it
         // the whole composer area, which is how the room's box blew
         // up to half the screen. With scrolling on, the view stays
-        // at its intrinsic one-line height; a long single line
-        // scrolls horizontally instead of growing.
+        // at the height the parent sets; a long draft scrolls
+        // inside the field only once it passes the parent's cap.
+        // The text wraps: there is no single-line truncation, so a
+        // long message is never cut to "..." while typing — the
+        // parent grows the field (via contentHeight) to show it.
         tv.isScrollEnabled = true
-        // Single-line mode (the room) is one line, no wrapping:
-        // Return sends, and a pasted newline is clipped, not a
-        // second line.
-        if isSingleLine {
-            tv.textContainer.maximumNumberOfLines = 1
-            tv.textContainer.lineBreakMode = .byTruncatingTail
-        }
-        tv.returnKeyType = isSingleLine ? .send : .default
+        tv.returnKeyType = sendOnReturn ? .send : .default
         tv.autocorrectionType = .default
         tv.autocapitalizationType = .sentences
         context.coordinator.textView = tv
@@ -157,13 +165,7 @@ struct WYSIWYGEditor: UIViewRepresentable {
         uiView.font = font
         uiView.textColor = textColor
         uiView.isScrollEnabled = true
-        if isSingleLine {
-            uiView.textContainer.maximumNumberOfLines = 1
-            uiView.textContainer.lineBreakMode = .byTruncatingTail
-        } else {
-            uiView.textContainer.maximumNumberOfLines = 0
-        }
-        uiView.returnKeyType = isSingleLine ? .send : .default
+        uiView.returnKeyType = sendOnReturn ? .send : .default
         // Focus: the parent drives it (autofocus on appear). Only
         // call becomeFirstResponder when the parent asks and the
         // view is not already first responder, so a rebuild does
@@ -200,6 +202,7 @@ struct WYSIWYGEditor: UIViewRepresentable {
             // of the draft.
             uiView.selectedRange = NSRange(location: uiView.attributedText.length, length: 0)
             context.coordinator.placeholderLabel?.isHidden = !text.isEmpty
+            context.coordinator.updateHeight()
         }
     }
 
@@ -240,6 +243,20 @@ struct WYSIWYGEditor: UIViewRepresentable {
             let location = min(cursor.location, maxLocation)
             tv.selectedRange = NSRange(location: location, length: 0)
             placeholderLabel?.isHidden = !parent.text.isEmpty
+            updateHeight()
+        }
+
+        /// Report the text view's content height to the parent, so a
+        /// growing composer (the room) can size its field to fit the
+        /// draft. Only writes when the height actually changed, so
+        /// the measurement does not loop back into SwiftUI.
+        func updateHeight() {
+            guard let tv = textView, let binding = parent.contentHeight else { return }
+            tv.layoutIfNeeded()
+            let height = tv.contentSize.height
+            if binding.wrappedValue != height {
+                binding.wrappedValue = height
+            }
         }
 
         func textViewDidChange(_ textView: UITextView) {
@@ -262,6 +279,7 @@ struct WYSIWYGEditor: UIViewRepresentable {
                 parent.text = plain
             }
             placeholderLabel?.isHidden = !parent.text.isEmpty
+            updateHeight()
         }
 
         func textViewDidBeginEditing(_ textView: UITextView) {
@@ -273,9 +291,9 @@ struct WYSIWYGEditor: UIViewRepresentable {
         }
 
         func textView(_ textView: UITextView, shouldChangeTextIn range: NSRange, replacementText text: String) -> Bool {
-            // Single-line mode: Return sends the message instead of
+            // Chat-composer mode: Return sends the message instead of
             // inserting a newline.
-            if parent.isSingleLine && text == "\n" {
+            if parent.sendOnReturn && text == "\n" {
                 parent.onCommit?()
                 return false
             }

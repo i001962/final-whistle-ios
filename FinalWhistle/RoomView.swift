@@ -102,6 +102,11 @@ struct RoomView: View {
     @State private var showingAddEmoji = false
     @State private var likedHashes: Set<String> = []
     @State private var composerFocused = false
+    /// The composer's measured content height, reported by the
+    /// editor as the draft grows. The field starts at one line (44)
+    /// and grows to show the whole draft, up to about five lines,
+    /// then the text scrolls inside it.
+    @State private var composerHeight: CGFloat = 44
 
     var body: some View {
         VStack(spacing: 0) {
@@ -333,20 +338,21 @@ struct RoomView: View {
                 // The editor shows the emoji itself, not the
                 // delimiter: a tapped emoji sits in the sentence as
                 // its picture (WYSIWYG). Return sends the message.
-                // The height is capped at one line: a UITextView
-                // with scrolling off grows to fit its content and
-                // SwiftUI hands it the whole composer area, which is
-                // how the box blew up to half the screen.
+                // The field grows with the draft: one line to start,
+                // up to about five lines, so a long message is never
+                // truncated to "..." while typing. Past that the text
+                // scrolls inside the field.
                 WYSIWYGEditor(
                     text: $draft,
                     placeholder: "Message the room…",
                     font: .preferredFont(forTextStyle: .body),
                     textColor: .label,
-                    isSingleLine: true,
+                    sendOnReturn: true,
                     onCommit: { Task { await send() } },
-                    isFocused: $composerFocused
+                    isFocused: $composerFocused,
+                    contentHeight: $composerHeight
                 )
-                .frame(maxHeight: 44)
+                .frame(height: min(max(composerHeight, 44), 150))
                 .padding(.horizontal, 14)
                 .padding(.vertical, 10)
                 .background(Color.fwPanel, in: RoundedRectangle(cornerRadius: 20))

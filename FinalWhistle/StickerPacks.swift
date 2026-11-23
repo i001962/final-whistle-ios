@@ -81,7 +81,15 @@ final class StickerStore: ObservableObject {
     /// All packs the app knows: the user's own plus the built-ins.
     /// Rendering and shortcode resolution look here, so a built-in
     /// sticker works for a reader who never added the pack.
-    var allKnownPacks: [StickerPack] { packs + Self.builtInPacks }
+    /// Every pack the app knows: the user's own packs, plus the
+    /// built-in packs. A pack that the user has already adopted (its
+    /// id is in their packs) is listed once, from their copy — the
+    /// built-in copy is not also shown, or Banny appears twice in
+    /// the tray once the first sticker is sent.
+    var allKnownPacks: [StickerPack] {
+        let userIDs = Set(packs.map(\.id))
+        return packs + Self.builtInPacks.filter { !userIDs.contains($0.id) }
+    }
 
     /// Resolve an inline shortcode `:packid:emojiconid:` to its image
     /// URL, or nil when the pack or the sticker is unknown. The label

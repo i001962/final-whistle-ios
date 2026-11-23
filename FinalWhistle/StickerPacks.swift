@@ -119,6 +119,30 @@ final class StickerStore: ObservableObject {
         return nil
     }
 
+    /// The image URLs for the inline emoji shortcodes in a piece of
+    /// text, in order, deduplicated. The text is the single source of
+    /// truth: a sticker is attached exactly when its shortcode is in
+    /// the text, so deleting the emoji from the editor (backspace)
+    /// un-attaches it, and there is no second list to keep in sync.
+    /// The caller caps the count to the embed budget.
+    func stickerURLs(forShortcodesIn text: String) -> [String] {
+        guard let regex = try? NSRegularExpression(pattern: #":([a-z0-9_][a-z0-9_-]{0,31}):([a-z0-9_][a-z0-9_-]{0,31}):"#) else { return [] }
+        let nsText = text as NSString
+        let matches = regex.matches(in: text, range: NSRange(location: 0, length: nsText.length))
+        var seen: Set<String> = []
+        var out: [String] = []
+        for match in matches {
+            let packID = nsText.substring(with: match.range(at: 1)).lowercased()
+            let emojiID = nsText.substring(with: match.range(at: 2)).lowercased()
+            guard let url = stickerURL(packID: packID, stickerID: emojiID) else { continue }
+            let urlString = url.absoluteString
+            guard !seen.contains(urlString) else { continue }
+            seen.insert(urlString)
+            out.append(urlString)
+        }
+        return out
+    }
+
     /// Copy a built-in pack into the user's packs, so it shows in the
     /// picker and can be managed. Returns false when the pack is
     /// already added or unknown.

@@ -42,14 +42,16 @@ struct ComposeView: View {
     @State private var editorFocused = false
     /// Sticker images attached to this post. Picking an emoji from
     /// the tray inserts its shortcode (`:packid:emojiconid:`) into
-    /// the text and adds the image here; it does NOT post. The user
-    /// writes around it and hits Post, and the images travel as
-    /// embeds. The embed budget is 2 total (1 when quoting), shared
-    /// with links. The shortcode is the emoji (inline, looked up by
-    /// pack and emoji id); the image here is the sticker (the embed
-    /// the shortcode resolves to). The two are kept separate: the
-    /// text carries the emoji reference, the embeds carry the art.
-    @State private var attachedStickers: [String] = []
+    /// the text; it does NOT post, and it shows inline in the editor
+    /// as its picture, nowhere else. The user writes around it and
+    /// hits Post, and the images travel as embeds, derived from the
+    /// shortcodes in the text at post time — backspacing an emoji
+    /// out of the editor un-attaches it. The embed budget is 2 total
+    /// (1 when quoting), shared with links. The shortcode is the
+    /// emoji (inline, looked up by pack and emoji id); the image is
+    /// the sticker (the embed the shortcode resolves to). The two
+    /// are kept separate: the text carries the emoji reference, the
+    /// embeds carry the art.
     /// The emoji tray above the editor. Same tray as the room: tap
     /// an emoji to add it to the post being written.
     @State private var showStickerTray = false
@@ -60,14 +62,18 @@ struct ComposeView: View {
 
     /// Attach an emoji to this post: its shortcode goes into the
     /// text at the end (so it renders inline on the reader side),
-    /// and its image joins the embeds. A sticker already attached
-    /// is not added twice, and the embed budget caps how many fit.
+    /// and the editor shows it as its picture. A sticker already in
+    /// the text is not added twice, and the embed budget caps how
+    /// many fit. To remove one, the user backspaces it out of the
+    /// editor; the embeds are derived from the text at post time, so
+    /// a deleted emoji is not sent.
     private func attachSticker(url: String) {
         let budget = quoted != nil ? 1 : 2
-        guard !attachedStickers.contains(url), attachedStickers.count < budget else { return }
-        guard let shortcode = StickerStore.shared.shortcode(for: url) else { return }
+        guard let shortcode = StickerStore.shared.shortcode(for: url),
+              !text.contains(shortcode),
+              StickerStore.shared.stickerURLs(forShortcodesIn: text).count < budget
+        else { return }
         StickerStore.shared.recordUse(url: url)
-        attachedStickers.append(url)
         // Insert the shortcode at the end, with a space after it so
         // the user can keep typing. If the text is empty the
         // shortcode is the whole post and renders large.
@@ -77,16 +83,6 @@ struct ComposeView: View {
             text += shortcode + " "
         } else {
             text += " " + shortcode + " "
-        }
-    }
-
-    /// Detach a sticker: drop its image from the embeds and take its
-    /// shortcode out of the text, so the two stay in sync.
-    private func detachSticker(url: String) {
-        attachedStickers.removeAll { $0 == url }
-        if let shortcode = StickerStore.shared.shortcode(for: url) {
-            text = text.replacingOccurrences(of: shortcode + " ", with: "")
-            text = text.replacingOccurrences(of: shortcode, with: "")
         }
     }
 
@@ -263,44 +259,6 @@ struct ComposeView: View {
                         .foregroundStyle(.red)
                 }
 
-                // Attached stickers, as thumbnails with a remove
-                // button. They travel as image embeds; the shortcode
-                // for each one is already in the text above.
-                if !attachedStickers.isEmpty {
-                    ScrollView(.horizontal, showsIndicators: false) {
-                        HStack(spacing: 10) {
-                            ForEach(attachedStickers, id: \.self) { url in
-                                ZStack(alignment: .topTrailing) {
-                                    AsyncImage(url: URL(string: url)) { phase in
-                                        switch phase {
-                                        case .success(let image):
-                                            image.resizable().scaledToFit()
-                                        case .failure:
-                                            Image(systemName: "photo")
-                                                .foregroundStyle(Color.fwMuted)
-                                        case .empty:
-                                            ProgressView().tint(Color.fwLime)
-                                        @unknown default:
-                                            EmptyView()
-                                        }
-                                    }
-                                    .frame(width: 56, height: 56)
-                                    Button {
-                                        detachSticker(url: url)
-                                    } label: {
-                                        Image(systemName: "xmark.circle.fill")
-                                            .foregroundStyle(Color.fwText)
-                                            .background(Color.fwBackground, in: Circle())
-                                    }
-                                    .offset(x: 6, y: -6)
-                                    .accessibilityLabel("Remove sticker")
-                                }
-                            }
-                        }
-                        .padding(.vertical, 4)
-                    }
-                }
-
                 HStack {
                     Button {
                         showStickerTray.toggle()
@@ -362,16 +320,18 @@ struct ComposeView: View {
         error = nil
         defer { isPosting = false }
         do {
-            // Gather embeds: attached stickers first (explicit),
-            // then links. The embed budget is 2 total; a quote
-            // already takes 1, so a quote leaves room for 1 link and
-            // a plain post or reply leaves room for 2. When the
-            // budget is tight the stickers win and the links past
-            // the budget stay as text. Every link that is attached
-            // is removed from the text, so the post does not show
-            // the URL as text above the picture or card. Sticker
-            // URLs are not in the text (only their shortcode is),
-            // so they are never stripped.
+            // Gather embeds: stickers first (explicit), then links.
+            // The stickers are derived from the shortcodes in the
+            // text, so an emoji the user backspaced out of the
+            // editor is not sent. The embed budget is 2 total; a
+            // quote already takes 1, so a quote leaves room for 1
+            // link and a plain post or reply leaves room for 2. When
+            // the budget is tight the stickers win and the links
+            // past the budget stay as text. Every link that is
+            // attached is removed from the text, so the post does
+            // not show the URL as text above the picture or card.
+            // Sticker URLs are not in the text (only their shortcode
+            // is), so they are never stripped.
             var candidates: [String] = []
             if !trimmedLink.isEmpty {
                 candidates.append(trimmedLink)
@@ -380,7 +340,7 @@ struct ComposeView: View {
                 candidates.append(url)
             }
             let embedBudget = quoted != nil ? 1 : 2
-            let stickerEmbeds = Array(attachedStickers.prefix(embedBudget))
+            let stickerEmbeds = Array(StickerStore.shared.stickerURLs(forShortcodesIn: text).prefix(embedBudget))
             let links = Array(candidates.prefix(max(0, embedBudget - stickerEmbeds.count)))
             let embeds = stickerEmbeds + links
             var sendText = text

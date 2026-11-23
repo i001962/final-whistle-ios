@@ -89,16 +89,17 @@ struct RoomView: View {
     @State private var sendError: String?
     @State private var showingProfile = false
     /// The sticker tray above the text box. Tapping a sticker adds
-    /// its shortcode to the draft and its image to the pending
-    /// embeds; nothing posts until the user hits send.
+    /// its shortcode to the draft; nothing posts until the user hits
+    /// send. The draft text is the only record of the chosen
+    /// emojis — they show inline in the editor, nowhere else, and
+    /// backspace deletes one. The embeds are derived from the
+    /// shortcodes in the text when sending, so there is no second
+    /// list to keep in sync.
     @State private var showStickerTray = false
     /// The add-your-own-emoji sheet, opened from the tray's plus
     /// button. Paste a direct image link and a name, and it joins
     /// the tray as :mine:<name>:.
     @State private var showingAddEmoji = false
-    /// Sticker image URLs to attach when this draft sends. Kept in
-    /// sync with the shortcodes in the draft text.
-    @State private var pendingStickerURLs: [String] = []
     @State private var likedHashes: Set<String> = []
     @State private var composerFocused = false
 
@@ -246,8 +247,9 @@ struct RoomView: View {
     /// The composer: a reply chip when answering a message, then the
     /// sticker tray when open, then the text field and send. Sending
     /// while signed out opens the account sheet instead of failing.
-    /// Tapping a sticker adds its shortcode to the draft and its
-    /// image to the pending embeds; nothing posts until send.
+    /// Tapping a sticker adds its shortcode to the draft; it shows
+    /// inline in the editor as its picture, and nothing posts until
+    /// send.
     private var composer: some View {
         VStack(spacing: 0) {
             if let replyingTo {
@@ -318,50 +320,6 @@ struct RoomView: View {
                 .background(Color.fwPanelSoft)
             }
 
-            if !pendingStickerURLs.isEmpty {
-                // What is attached to this draft, with a remove
-                // button each. Removing one takes its shortcode out
-                // of the text too, so the two stay in sync. The row
-                // is a fixed height: a horizontal ScrollView with
-                // no height cap expands to fill the composer area,
-                // which is how a tapped sticker floated in a big
-                // empty box above the text field.
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 10) {
-                        ForEach(pendingStickerURLs, id: \.self) { url in
-                            ZStack(alignment: .topTrailing) {
-                                AsyncImage(url: URL(string: url)) { phase in
-                                    switch phase {
-                                    case .success(let image):
-                                        image.resizable().scaledToFit()
-                                    case .failure:
-                                        Image(systemName: "photo")
-                                            .foregroundStyle(Color.fwMuted)
-                                    case .empty:
-                                        ProgressView().tint(Color.fwLime)
-                                    @unknown default:
-                                        EmptyView()
-                                    }
-                                }
-                                .frame(width: 44, height: 44)
-                                Button {
-                                    removeStickerFromDraft(url: url)
-                                } label: {
-                                    Image(systemName: "xmark.circle.fill")
-                                        .foregroundStyle(Color.fwText)
-                                        .background(Color.fwBackground, in: Circle())
-                                }
-                                .offset(x: 5, y: -5)
-                                .accessibilityLabel("Remove sticker")
-                            }
-                        }
-                    }
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 6)
-                }
-                .frame(height: 56)
-            }
-
             HStack(spacing: 10) {
                 Button {
                     showStickerTray.toggle()
@@ -419,32 +377,24 @@ struct RoomView: View {
     }
 
     /// Add a sticker to the draft being written: its shortcode goes
-    /// into the text (so it renders inline on the reader side) and
-    /// its image joins the pending embeds. Nothing posts until the
-    /// user hits send. A sticker already attached is not added twice,
-    /// and a cast holds at most 2 embeds.
+    /// into the text, and the editor shows it inline as its picture.
+    /// Nothing posts until the user hits send. A sticker already in
+    /// the draft is not added twice, and a cast holds at most 2
+    /// embeds, so the third tap is ignored. To remove one, the user
+    /// backspaces it out of the editor; the embeds are derived from
+    /// the text at send time, so a deleted emoji is not sent.
     private func addStickerToDraft(url: String) {
-        guard !pendingStickerURLs.contains(url), pendingStickerURLs.count < 2 else { return }
         guard let shortcode = StickerStore.shared.shortcode(for: url) else { return }
+        guard !draft.contains(shortcode),
+              StickerStore.shared.stickerURLs(forShortcodesIn: draft).count < 2
+        else { return }
         StickerStore.shared.recordUse(url: url)
-        pendingStickerURLs.append(url)
         if draft.isEmpty {
             draft = shortcode + " "
         } else if draft.hasSuffix(" ") || draft.hasSuffix("\n") {
             draft += shortcode + " "
         } else {
             draft += " " + shortcode + " "
-        }
-    }
-
-    /// Take a sticker back out of the draft: drop its image from the
-    /// pending embeds and its shortcode from the text, so the two
-    /// stay in sync.
-    private func removeStickerFromDraft(url: String) {
-        pendingStickerURLs.removeAll { $0 == url }
-        if let shortcode = StickerStore.shared.shortcode(for: url) {
-            draft = draft.replacingOccurrences(of: shortcode + " ", with: "")
-            draft = draft.replacingOccurrences(of: shortcode, with: "")
         }
     }
 
@@ -469,11 +419,12 @@ struct RoomView: View {
         // the same message. The default is always the root cast; a
         // reply to a message is one explicit long-press per message.
         replyingTo = nil
-        // The pending sticker images travel as embeds with the text.
-        // They are image URLs, so the reader draws them as pictures
-        // and the shortcodes in the text render inline against them.
-        let embeds = pendingStickerURLs
-        pendingStickerURLs = []
+        // The sticker images travel as embeds with the text. They
+        // are derived from the shortcodes in the draft, so a sticker
+        // the user backspaced out of the editor is not sent. They
+        // are image URLs, so the reader draws them as pictures and
+        // the shortcodes in the text render inline against them.
+        let embeds = Array(StickerStore.shared.stickerURLs(forShortcodesIn: text).prefix(2))
         do {
             let hash = try await identity.reply(to: target, text: text, linkURLs: embeds)
             draft = ""

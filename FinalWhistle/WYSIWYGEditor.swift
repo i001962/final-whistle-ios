@@ -290,12 +290,16 @@ struct WYSIWYGEditor: UIViewRepresentable {
     /// its literal text. This is what gets posted. The shortcode is
     /// read from the attribute on the attachment character, not from
     /// the attachment object, because the text view's copy drops an
-    /// attachment subclass.
+    /// attachment subclass. The attribute alone is not enough: text
+    /// typed right after an emoji can inherit the attribute, so the
+    /// shortcode is only read when the character is also an
+    /// attachment, which typed text never is.
     static func plainText(from attributed: NSAttributedString) -> String {
         var out = ""
         let full = NSRange(location: 0, length: attributed.length)
         attributed.enumerateAttributes(in: full, options: []) { attrs, range, _ in
-            if let shortcode = attrs[emojiShortcodeAttributeKey] as? String {
+            if let shortcode = attrs[emojiShortcodeAttributeKey] as? String,
+               attrs[.attachment] != nil {
                 out += shortcode
             } else if attrs[.attachment] != nil {
                 // An attachment with no shortcode (an image that is

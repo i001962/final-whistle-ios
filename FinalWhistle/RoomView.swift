@@ -96,7 +96,7 @@ struct RoomView: View {
     /// sync with the shortcodes in the draft text.
     @State private var pendingStickerURLs: [String] = []
     @State private var likedHashes: Set<String> = []
-    @FocusState private var composerFocused: Bool
+    @State private var composerFocused = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -346,17 +346,22 @@ struct RoomView: View {
                 }
                 .accessibilityLabel("Stickers")
 
-                // Single line, Return sends: room messages are short
-                // bursts, and a multi-line field eats the Return key
-                // for a newline instead of posting.
-                TextField("Message the room…", text: $draft)
-                    .focused($composerFocused)
-                    .submitLabel(.send)
-                    .onSubmit { Task { await send() } }
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 10)
-                    .background(Color.fwPanel, in: RoundedRectangle(cornerRadius: 20))
-                    .overlay(RoundedRectangle(cornerRadius: 20).stroke(Color.fwLine, lineWidth: 1))
+                // The editor shows the emoji itself, not the
+                // delimiter: a tapped emoji sits in the sentence as
+                // its picture (WYSIWYG). Return sends the message.
+                WYSIWYGEditor(
+                    text: $draft,
+                    placeholder: "Message the room…",
+                    font: .preferredFont(forTextStyle: .body),
+                    textColor: .label,
+                    isSingleLine: true,
+                    onCommit: { Task { await send() } },
+                    isFocused: $composerFocused
+                )
+                .padding(.horizontal, 14)
+                .padding(.vertical, 10)
+                .background(Color.fwPanel, in: RoundedRectangle(cornerRadius: 20))
+                .overlay(RoundedRectangle(cornerRadius: 20).stroke(Color.fwLine, lineWidth: 1))
 
                 Button {
                     Task { await send() }

@@ -36,16 +36,25 @@ struct ComposeView: View {
     @State private var linkField = ""
     @State private var isPosting = false
     @State private var error: String?
-    @FocusState private var editorFocused: Bool
-    /// Sticker images attached to this post. Picking a sticker
-    /// inserts its shortcode (`:packid:emojiconid:`) into the text
-    /// and adds the image here; it does NOT post. The user writes
-    /// around it and hits Post, and the images travel as embeds.
-    /// The embed budget is 2 total (1 when quoting), shared with links.
+    /// Whether the editor has the keyboard. A plain Bool state, not
+    /// a FocusState: the WYSIWYG editor is a UITextView, and it
+    /// drives focus through this binding.
+    @State private var editorFocused = false
+    /// Sticker images attached to this post. Picking an emoji from
+    /// the tray inserts its shortcode (`:packid:emojiconid:`) into
+    /// the text and adds the image here; it does NOT post. The user
+    /// writes around it and hits Post, and the images travel as
+    /// embeds. The embed budget is 2 total (1 when quoting), shared
+    /// with links. The shortcode is the emoji (inline, looked up by
+    /// pack and emoji id); the image here is the sticker (the embed
+    /// the shortcode resolves to). The two are kept separate: the
+    /// text carries the emoji reference, the embeds carry the art.
     @State private var attachedStickers: [String] = []
-    @State private var showingStickers = false
+    /// The emoji tray above the editor. Same tray as the room: tap
+    /// an emoji to add it to the post being written.
+    @State private var showStickerTray = false
 
-    /// Attach a sticker to this post: its shortcode goes into the
+    /// Attach an emoji to this post: its shortcode goes into the
     /// text at the end (so it renders inline on the reader side),
     /// and its image joins the embeds. A sticker already attached
     /// is not added twice, and the embed budget caps how many fit.
@@ -53,6 +62,7 @@ struct ComposeView: View {
         let budget = quoted != nil ? 1 : 2
         guard !attachedStickers.contains(url), attachedStickers.count < budget else { return }
         guard let shortcode = StickerStore.shared.shortcode(for: url) else { return }
+        StickerStore.shared.recordUse(url: url)
         attachedStickers.append(url)
         // Insert the shortcode at the end, with a space after it so
         // the user can keep typing. If the text is empty the
@@ -147,24 +157,54 @@ struct ComposeView: View {
                         .foregroundStyle(Color.fwAccentSoft)
                 }
 
-                ZStack(alignment: .topLeading) {
-                    if text.isEmpty {
-                        Text(placeholder)
-                            .font(.body)
-                            .foregroundStyle(.secondary)
-                            .padding(.top, 8)
-                            .padding(.leading, 5)
-                            .allowsHitTesting(false)
+                if showStickerTray {
+                    // The emojis, above the text box: the same tray as
+                    // the room. Tap one to add it to the post being
+                    // written — its shortcode goes into the text, its
+                    // image joins the embeds below.
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 12) {
+                            ForEach(StickerStore.shared.allKnownPacks.flatMap(\.stickers), id: \.url) { sticker in
+                                Button {
+                                    attachSticker(url: sticker.url)
+                                } label: {
+                                    AsyncImage(url: URL(string: sticker.url)) { phase in
+                                        switch phase {
+                                        case .success(let image):
+                                            image.resizable().scaledToFit()
+                                        case .failure:
+                                            Image(systemName: "photo")
+                                                .foregroundStyle(Color.fwMuted)
+                                        case .empty:
+                                            ProgressView().tint(Color.fwLime)
+                                        @unknown default:
+                                            EmptyView()
+                                        }
+                                    }
+                                    .frame(width: 44, height: 44)
+                                }
+                                .accessibilityLabel(sticker.label)
+                            }
+                        }
+                        .padding(.vertical, 4)
                     }
-                    TextEditor(text: $text)
-                        .font(.body)
-                        .focused($editorFocused)
-                        .frame(minHeight: 140)
-                        .scrollContentBackground(.hidden)
-                        .accessibilityLabel(title)
+                    .background(Color.fwPanelSoft, in: RoundedRectangle(cornerRadius: 12))
                 }
-                .contentShape(Rectangle())
-                .onTapGesture { editorFocused = true }
+
+                // The editor shows the emoji itself, not the
+                // delimiter: while you write, a tapped emoji sits in
+                // the sentence as its picture (WYSIWYG). The text
+                // underneath is still the plain text with shortcodes,
+                // which is what gets posted.
+                WYSIWYGEditor(
+                    text: $text,
+                    placeholder: placeholder,
+                    font: .preferredFont(forTextStyle: .body),
+                    textColor: .label,
+                    isFocused: $editorFocused
+                )
+                .frame(minHeight: 140)
+                .accessibilityLabel(title)
 
                 if let quoted {
                     // The quoted cast sits BELOW your words, as an
@@ -245,13 +285,13 @@ struct ComposeView: View {
 
                 HStack {
                     Button {
-                        showingStickers = true
+                        showStickerTray.toggle()
                     } label: {
                         Label("Sticker", systemImage: "face.smiling")
                             .font(.footnote)
-                            .foregroundStyle(Color.fwAccentSoft)
+                            .foregroundStyle(showStickerTray ? Color.fwAccent : Color.fwAccentSoft)
                     }
-                    .accessibilityLabel("Add a sticker")
+                    .accessibilityLabel("Add an emoji")
                     Text("\(text.count)/\(maxLength)")
                         .font(.footnote)
                         .foregroundStyle(text.count > maxLength ? .red : .secondary)
@@ -290,15 +330,6 @@ struct ComposeView: View {
                 // will take focus; a short delay is the standard way.
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
                     editorFocused = true
-                }
-            }
-            .sheet(isPresented: $showingStickers) {
-                // Picking a sticker attaches it to this post (shortcode
-                // in the text, image in the embeds). It does not post:
-                // the user writes around it and hits Post.
-                StickerPickerSheet { url in
-                    showingStickers = false
-                    attachSticker(url: url)
                 }
             }
         }

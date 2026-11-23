@@ -91,13 +91,16 @@ d = [x["hardwareProperties"] for x in json.load(open(sys.argv[1]))["result"]["de
 print(d[0]["udid"] if d else "")' "$OUT/devices.json")
 [ -n "$UDID" ] || { echo "No iPhone connected. Plug it in, unlock it and trust this Mac." >&2; exit 1; }
 # The team is an xcodebuild override, so it survives the pull above
-# even though the pbxproj was discarded and re-pulled.
-BUILD_ARGS=()
+# even though the pbxproj was discarded and re-pulled. The two
+# invocations are written out (instead of an args array) because the
+# Mac's bash 3.2 treats an empty array as unbound under `set -u`.
 if [ -n "$TEAM" ]; then
-  BUILD_ARGS+=(DEVELOPMENT_TEAM="$TEAM")
+  xcodebuild -scheme "$APP" -destination "id=$UDID" -derivedDataPath "$OUT" \
+    -allowProvisioningUpdates -allowProvisioningDeviceRegistration build DEVELOPMENT_TEAM="$TEAM" >>"$LOG" 2>&1 || fail Build
+else
+  xcodebuild -scheme "$APP" -destination "id=$UDID" -derivedDataPath "$OUT" \
+    -allowProvisioningUpdates -allowProvisioningDeviceRegistration build >>"$LOG" 2>&1 || fail Build
 fi
-xcodebuild -scheme "$APP" -destination "id=$UDID" -derivedDataPath "$OUT" \
-  -allowProvisioningUpdates -allowProvisioningDeviceRegistration build "${BUILD_ARGS[@]}" >>"$LOG" 2>&1 || fail Build
 xcrun devicectl device install app --device "$UDID" \
   "$OUT/Build/Products/Debug-iphoneos/$APP.app" >>"$LOG" 2>&1 || fail Install
 xcrun devicectl device process launch --terminate-existing --device "$UDID" "$BUNDLE" >>"$LOG" 2>&1 || fail Launch

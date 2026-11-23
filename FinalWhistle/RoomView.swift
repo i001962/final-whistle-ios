@@ -300,7 +300,11 @@ struct RoomView: View {
             if !pendingStickerURLs.isEmpty {
                 // What is attached to this draft, with a remove
                 // button each. Removing one takes its shortcode out
-                // of the text too, so the two stay in sync.
+                // of the text too, so the two stay in sync. The row
+                // is a fixed height: a horizontal ScrollView with
+                // no height cap expands to fill the composer area,
+                // which is how a tapped sticker floated in a big
+                // empty box above the text field.
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 10) {
                         ForEach(pendingStickerURLs, id: \.self) { url in
@@ -334,6 +338,7 @@ struct RoomView: View {
                     .padding(.horizontal, 16)
                     .padding(.vertical, 6)
                 }
+                .frame(height: 56)
             }
 
             HStack(spacing: 10) {

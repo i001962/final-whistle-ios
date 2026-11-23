@@ -180,12 +180,14 @@ struct WYSIWYGEditor: UIViewRepresentable {
         let currentPlain = Self.plainText(from: uiView.attributedText)
         if currentPlain != text {
             let coordinator = context.coordinator
+            coordinator.settingTextProgrammatically = true
             uiView.attributedText = Self.attributedString(
                 for: text,
                 font: font,
                 textColor: textColor,
                 onImageLoaded: { coordinator.refresh() }
             )
+            coordinator.settingTextProgrammatically = false
             // A tray tap appends at the end, so the cursor goes
             // after the new emoji.
             uiView.selectedRange = NSRange(location: (text as NSString).length, length: 0)
@@ -197,6 +199,14 @@ struct WYSIWYGEditor: UIViewRepresentable {
         var parent: WYSIWYGEditor
         weak var textView: UITextView?
         weak var placeholderLabel: UILabel?
+        /// True while the coordinator itself is setting the text
+        /// view's attributed string (a rebuild from the binding).
+        /// textViewDidChange fires for a programmatic set too, and
+        /// without this guard it reads the new string back and
+        /// overwrites the binding, which is how a tray tap ate the
+        /// typed text: the rebuild set the string, the delegate read
+        /// it back, and the binding came out empty.
+        var settingTextProgrammatically = false
 
         init(parent: WYSIWYGEditor) {
             self.parent = parent
@@ -208,12 +218,14 @@ struct WYSIWYGEditor: UIViewRepresentable {
         func refresh() {
             guard let tv = textView else { return }
             let cursor = tv.selectedRange
+            settingTextProgrammatically = true
             tv.attributedText = WYSIWYGEditor.attributedString(
                 for: parent.text,
                 font: parent.font,
                 textColor: parent.textColor,
                 onImageLoaded: { [weak self] in self?.refresh() }
             )
+            settingTextProgrammatically = false
             // Clamp the cursor: the text may have shortened if an
             // attachment replaced a longer delimiter.
             let maxLocation = tv.attributedText.length
@@ -223,6 +235,10 @@ struct WYSIWYGEditor: UIViewRepresentable {
         }
 
         func textViewDidChange(_ textView: UITextView) {
+            // A programmatic set is the view catching up to the
+            // binding, not the user typing. Ignore it, or it reads
+            // the rebuilt string back and clobbers the binding.
+            guard !settingTextProgrammatically else { return }
             let plain = WYSIWYGEditor.plainText(from: textView.attributedText)
             if plain != parent.text {
                 parent.text = plain

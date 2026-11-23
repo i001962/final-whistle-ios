@@ -434,6 +434,24 @@ final class IdentityStore: ObservableObject {
     /// KeyAdd with the next user nonce). Used when the stored signer has
     /// expired after 30 days without use. Returns the new signer seed and
     /// public key hex.
+    /// The nonce for a new KeyAdd. Hypersnap uses two nonce schemes
+    /// for offchain signers, and the wrong one is a stale replay.
+    /// Native FIDs get small sequential nonces (1, 2, 3...), so the
+    /// next one is current + 1. Classic FIDs get timestamp nonces
+    /// (the Unix time of the KeyAdd, e.g. 1795334148), so current + 1
+    /// is a second in the past by the time the KeyAdd is submitted
+    /// and the hub rejects it as stale. A timestamp nonce is any
+    /// value that looks like a Unix time; for those, the next nonce
+    /// is the later of current + 1 and now, so it is always ahead of
+    /// the last one and never in the past.
+    private static func nextKeyAddNonce(currentUserNonce: UInt32) -> UInt32 {
+        if currentUserNonce > 1_000_000 {
+            let now = UInt32(Date().timeIntervalSince1970)
+            return max(currentUserNonce + 1, now)
+        }
+        return currentUserNonce + 1
+    }
+
     private func renewSigner(fid: UInt64, custodyAddress: String, custodyKey: Data) async throws -> (seed: Data, publicKeyHex: String) {
         // `guard let _ =` pins the failable Data.init?(hex:) — a bare
         // Data(hex:) is ambiguous with a non-failable hex init in the
@@ -444,7 +462,7 @@ final class IdentityStore: ObservableObject {
         try await addSigner(
             fid: fid, custodyPrivateKey: custodyKey,
             custodyAddress: custodyAddress, signerPublicKey: signer.publicKey, signer: signer,
-            nonce: info.currentUserNonce + 1
+            nonce: Self.nextKeyAddNonce(currentUserNonce: info.currentUserNonce)
         )
         try KeychainStore.save(signer.seed, account: KeychainStore.signerAccount(for: custodyAddress))
         return (signer.seed, signer.publicKey.hexString)

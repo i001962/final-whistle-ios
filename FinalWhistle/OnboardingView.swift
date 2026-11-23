@@ -2,10 +2,12 @@ import SwiftUI
 
 /// Add-account screen, reached from Account. A hub, like the Account
 /// panel: one row per way in, each opening a focused screen, instead of
-/// all three forms stacked at once. Three ways in: sign in with an
-/// account you already have (account ID + sign-in key), sign in with
-/// your recovery key (account ID + custody private key — a fresh sign-in
-/// key is made for this phone), or create a free new account on this
+/// all four forms stacked at once. Four ways in: sign in with a seed
+/// phrase from Warpcast or another wallet (12 or 24 words, the path
+/// most existing Farcaster users have), sign in with your recovery key
+/// (account ID + custody private key — a fresh sign-in key is made for
+/// this phone), sign in with a sign-in key from another device
+/// (account ID + signer seed), or create a free new account on this
 /// phone. The account joins the ones already on this phone and becomes
 /// the active one. The feed itself needs no identity at all, so this
 /// screen never blocks opening the app.
@@ -18,17 +20,17 @@ struct OnboardingView: View {
             List {
                 Section {
                     NavigationLink {
-                        SignInView(onSignedIn: { dismiss() })
+                        SeedPhraseSignInView(onSignedIn: { dismiss() })
                     } label: {
                         Label {
                             VStack(alignment: .leading, spacing: 2) {
-                                Text("I already have an account")
-                                Text("Sign in with your sign-in key")
+                                Text("Sign in with a seed phrase")
+                                Text("12 or 24 words from Warpcast or another wallet")
                                     .font(.footnote)
                                     .foregroundStyle(.secondary)
                             }
                         } icon: {
-                            Image(systemName: "person.badge.key")
+                            Image(systemName: "list.bullet.rectangle")
                         }
                     }
                     NavigationLink {
@@ -43,6 +45,20 @@ struct OnboardingView: View {
                             }
                         } icon: {
                             Image(systemName: "key")
+                        }
+                    }
+                    NavigationLink {
+                        SignInView(onSignedIn: { dismiss() })
+                    } label: {
+                        Label {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("I already have an account")
+                                Text("A sign-in key from another device")
+                                    .font(.footnote)
+                                    .foregroundStyle(.secondary)
+                            }
+                        } icon: {
+                            Image(systemName: "person.badge.key")
                         }
                     }
                     NavigationLink {
@@ -83,6 +99,84 @@ struct OnboardingView: View {
                     Button("Done") { dismiss() }
                 }
             }
+        }
+    }
+}
+
+/// Sign in with a 12 or 24-word seed phrase from Warpcast or another
+/// Farcaster wallet, plus the account ID. The phrase derives the
+/// custody key at m/44'/60'/0'/0/0, and the recovery-key sign-in takes
+/// it from there: the app checks the key belongs to the account, then
+/// makes a fresh sign-in key for this phone. The phrase itself is used
+/// once and never stored — only the derived key is saved, in the
+/// Keychain behind Face ID, the same as a recovery key typed in by hand.
+private struct SeedPhraseSignInView: View {
+    @EnvironmentObject private var identity: IdentityStore
+    let onSignedIn: () -> Void
+    @State private var fidText = ""
+    @State private var phraseText = ""
+    @State private var error: String?
+    @State private var working = false
+
+    var body: some View {
+        Form {
+            Section {
+                TextField("Account ID (your FID number), for example 4163", text: $fidText)
+                    .keyboardType(.numberPad)
+            } header: {
+                Text("Sign in with a seed phrase")
+            } footer: {
+                Text("Your account ID is in Warpcast under Settings, or on your Farcaster profile.")
+            }
+
+            Section {
+                TextField("12 or 24 words, separated by spaces", text: $phraseText, axis: .vertical)
+                    .lineLimit(4, reservesSpace: true)
+                    .autocapitalization(.none)
+                    .autocorrectionDisabled()
+                    .textContentType(.none)
+            } header: {
+                Text("Seed phrase")
+            } footer: {
+                Text("The words from Warpcast or another wallet, in order. Final Whistle uses them once to work out your account key, then only stores the key — the words themselves are never saved.")
+            }
+
+            Section {
+                Button("Sign in with seed phrase") {
+                    Task { await bringYourFIDWithSeedPhrase() }
+                }
+                .frame(maxWidth: .infinity, minHeight: 44)
+                .disabled(working || fidText.isEmpty || phraseText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            }
+
+            if let error {
+                Section {
+                    Text(error)
+                        .font(.footnote)
+                        .foregroundStyle(.red)
+                }
+            }
+        }
+        .scrollContentBackground(.hidden)
+        .background(Color.fwBackground)
+        .navigationTitle("Seed phrase")
+        .navigationBarTitleDisplayMode(.inline)
+    }
+
+    private func bringYourFIDWithSeedPhrase() async {
+        working = true
+        error = nil
+        defer { working = false }
+        guard let fid = UInt64(fidText.trimmingCharacters(in: .whitespaces)) else {
+            error = "Enter a numeric account ID."
+            return
+        }
+        do {
+            let keyHex = try SeedPhrase.custodyPrivateKeyHex(for: phraseText)
+            try await identity.bringYourFIDWithCustody(fid: fid, custodyPrivateKeyHex: keyHex)
+            if identity.isSignedIn { onSignedIn() }
+        } catch {
+            self.error = error.localizedDescription
         }
     }
 }

@@ -124,6 +124,17 @@ final class StickerStore: ObservableObject {
         return true
     }
 
+    /// Make sure the pack containing a sticker is in the user's
+    /// packs, so a tap on a built-in sticker records its use. A
+    /// built-in pack joins the user's packs the first time one of
+    /// its stickers is sent.
+    func ensurePack(for url: String) {
+        for pack in Self.builtInPacks where pack.stickers.contains(where: { $0.url == url }) {
+            _ = addPack(id: pack.id)
+            return
+        }
+    }
+
     /// A URL is a sticker when it is in one of the packs (the user's
     /// or a built-in), or when it matches the hosted-pack shape
     /// (Quilcast's stickerPack check).
@@ -250,7 +261,9 @@ struct StickerPickerSheet: View {
     @State private var urlError: String?
     @State private var checking = false
 
-    private var allStickers: [Sticker] { store.packs.flatMap(\.stickers) }
+    /// Every sticker the picker can send: the user's own packs plus
+    /// the built-in packs, so Banny is just there, no install step.
+    private var allStickers: [Sticker] { store.allKnownPacks.flatMap(\.stickers) }
 
     var body: some View {
         NavigationStack {
@@ -266,13 +279,16 @@ struct StickerPickerSheet: View {
                         LazyVGrid(columns: [GridItem(.adaptive(minimum: 72))], spacing: 12) {
                             ForEach(allStickers, id: \.url) { sticker in
                                 Button {
-                                    // Record the use first, so the
-                                    // counts track what the user
-                                    // actually reaches for. The parent
+                                    // A built-in pack joins the user's
+                                    // packs the first time one of its
+                                    // stickers is sent, so the counts
+                                    // track what the user actually
+                                    // reaches for. The parent
                                     // (RoomView) closes the panel when
                                     // onPick fires, so the user lands
                                     // back on the chat feed while the
                                     // sticker sends.
+                                    store.ensurePack(for: sticker.url)
                                     store.recordUse(url: sticker.url)
                                     onPick(sticker.url)
                                 } label: {
@@ -404,14 +420,6 @@ private struct ManageStickersView: View {
         store.packs.isEmpty ? [] : store.packs[0].stickers
     }
 
-    /// Built-in packs the user has not added yet. Adding one copies
-    /// the whole pack into the user's stickers at once.
-    private var availablePacks: [StickerPack] {
-        StickerStore.builtInPacks.filter { pack in
-            !store.packs.contains(where: { $0.id == pack.id })
-        }
-    }
-
     var body: some View {
         List {
             Section {
@@ -473,35 +481,6 @@ private struct ManageStickersView: View {
                 }
             } footer: {
                 Text("Puts the stickers you send most at the top.")
-            }
-
-            // Built-in packs, one tap to add the whole pack at once
-            // instead of pasting image links one at a time. A pack
-            // already in the list does not show here.
-            if !availablePacks.isEmpty {
-                Section {
-                    ForEach(availablePacks) { pack in
-                        HStack {
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(pack.title)
-                                    .font(.subheadline)
-                                    .foregroundStyle(Color.fwText)
-                                Text("\(pack.stickers.count) stickers")
-                                    .font(.caption)
-                                    .foregroundStyle(Color.fwMuted)
-                            }
-                            Spacer()
-                            Button("Add pack") {
-                                store.addPack(id: pack.id)
-                            }
-                            .foregroundStyle(Color.fwAccent)
-                        }
-                    }
-                } header: {
-                    Text("Sticker packs")
-                } footer: {
-                    Text("Adds the whole pack to your stickers at once, so you can send any of them from the picker.")
-                }
             }
         }
         .scrollContentBackground(.hidden)

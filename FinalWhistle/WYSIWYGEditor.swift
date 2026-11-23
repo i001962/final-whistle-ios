@@ -189,8 +189,15 @@ struct WYSIWYGEditor: UIViewRepresentable {
             )
             coordinator.settingTextProgrammatically = false
             // A tray tap appends at the end, so the cursor goes
-            // after the new emoji.
-            uiView.selectedRange = NSRange(location: (text as NSString).length, length: 0)
+            // after the new emoji. The cursor is in the attributed
+            // string's coordinates: each emoji is one attachment
+            // character, so the plain text (with its 12-char
+            // shortcodes) is longer than the attributed string.
+            // Using the plain length here put the cursor past the
+            // end of the text and crashed the app on the second
+            // emoji. The end of the attributed string is the end
+            // of the draft.
+            uiView.selectedRange = NSRange(location: uiView.attributedText.length, length: 0)
             context.coordinator.placeholderLabel?.isHidden = !text.isEmpty
         }
     }

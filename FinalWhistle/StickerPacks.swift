@@ -59,21 +59,22 @@ final class StickerStore: ObservableObject {
 
     // MARK: - Built-in packs (static, shipped with the app)
 
-    /// Packs that ship with the app, not entered by the user. Their
-    /// images live at final-whistle.app/st/<pack>/<id>.webp. A sticker
-    /// in a built-in pack renders as a sticker for everyone, even a
-    /// reader who has not added the pack — the pack is the shared
-    /// registry, the same shape as Slack's workspace emoji list.
-    /// The banny art is from footy-fc/d33m (public/assets/banny_*),
-    /// resized to 512px max side and converted to WebP.
+    /// Packs that ship with the app, not entered by the user. The
+    /// banny images are the d33m art, served straight from the
+    /// footy-fc/d33m repo on GitHub (raw.githubusercontent.com) —
+    /// the art already lives there publicly, so the pack works with
+    /// no file upload and no VPS step. A sticker in a built-in pack
+    /// renders as a sticker for everyone, even a reader who has not
+    /// added the pack — the pack is the shared registry, the same
+    /// shape as Slack's workspace emoji list.
     static let builtInPacks: [StickerPack] = [
         StickerPack(id: "banny", title: "Banny", stickers: [
-            Sticker(url: "https://final-whistle.app/st/banny/goal.webp", label: "goal"),
-            Sticker(url: "https://final-whistle.app/st/banny/lfg.webp", label: "lfg"),
-            Sticker(url: "https://final-whistle.app/st/banny/popcorn.webp", label: "popcorn"),
-            Sticker(url: "https://final-whistle.app/st/banny/redcard.webp", label: "redcard"),
-            Sticker(url: "https://final-whistle.app/st/banny/stoned.webp", label: "stoned"),
-            Sticker(url: "https://final-whistle.app/st/banny/wow.webp", label: "wow"),
+            Sticker(url: "https://raw.githubusercontent.com/footy-fc/d33m/main/public/assets/banny_goal.png", label: "goal"),
+            Sticker(url: "https://raw.githubusercontent.com/footy-fc/d33m/main/public/assets/banny_lfg.png", label: "lfg"),
+            Sticker(url: "https://raw.githubusercontent.com/footy-fc/d33m/main/public/assets/banny_popcorn.png", label: "popcorn"),
+            Sticker(url: "https://raw.githubusercontent.com/footy-fc/d33m/main/public/assets/banny_redcard.png", label: "redcard"),
+            Sticker(url: "https://raw.githubusercontent.com/footy-fc/d33m/main/public/assets/banny_stoned.png", label: "stoned"),
+            Sticker(url: "https://raw.githubusercontent.com/footy-fc/d33m/main/public/assets/banny_wow.png", label: "wow"),
         ]),
     ]
 

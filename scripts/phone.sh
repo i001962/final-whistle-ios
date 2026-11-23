@@ -26,13 +26,28 @@ fail() { grep -E 'error:|ERROR:|FailureReason' "$LOG" | sort -u | head -20 || tr
 
 # 1. Pull, handling Xcode's local rewrite of project.pbxproj.
 #
-# Save the development team first: it lives in the local pbxproj, and
-# the discard below would throw it away. The team id is passed to
-# xcodebuild as an override at build time, so the pull can never lose it.
-TEAM=$(grep -m1 'DEVELOPMENT_TEAM' FinalWhistle.xcodeproj/project.pbxproj 2>/dev/null | sed -E 's/.*DEVELOPMENT_TEAM = ([A-Za-z0-9]+);.*/\1/' || true)
-TEAM=$(echo "$TEAM" | tr -d '[:space:]')
+# The development team is read from scripts/.development-team first
+# (a local file phone.sh saves the first time it sees a team, so the
+# team survives every pull even if project.pbxproj ever loses it
+# again), and otherwise from the local pbxproj — the team is committed
+# in the repo's pbxproj now, so the pull brings it and the extraction
+# below finds it. A team found in the pbxproj is saved to the file so
+# the next run does not depend on the pbxproj at all. If no team is
+# found anywhere, the build fails with "requires a development team":
+# select it once in Xcode (target FinalWhistle > Signing &
+# Capabilities), then re-run and this script saves it from then on.
+TEAM_FILE=scripts/.development-team
+if [ -s "$TEAM_FILE" ]; then
+  TEAM=$(tr -d '[:space:]' < "$TEAM_FILE")
+else
+  TEAM=$(grep -m1 'DEVELOPMENT_TEAM' FinalWhistle.xcodeproj/project.pbxproj 2>/dev/null | sed -E 's/.*DEVELOPMENT_TEAM = ([A-Za-z0-9]+);.*/\1/' || true)
+  TEAM=$(echo "$TEAM" | tr -d '[:space:]')
+  if [ -n "$TEAM" ]; then
+    echo "$TEAM" > "$TEAM_FILE"
+  fi
+fi
 if [ -n "$TEAM" ]; then
-  echo "Saved development team $TEAM; it will be passed to the build."
+  echo "Development team $TEAM; it will be passed to the build."
 else
   echo "No development team in the project yet. If the build fails with 'requires a development team', select it once in Xcode (target FinalWhistle > Signing & Capabilities), then re-run." >&2
 fi

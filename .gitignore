@@ -20,3 +20,9 @@ signer-seed.txt
 # App API keys (pfp upload). Copy FinalWhistle/Secrets.example.swift
 # to FinalWhistle/Secrets.swift and fill in the real values locally.
 FinalWhistle/Secrets.swift
+
+# Development team id for the phone build. The team id is not a
+# secret (it is in the app's code signature), but it is machine-
+# specific, so phone.sh keeps it in this local file instead of
+# relying on project.pbxproj surviving a pull.
+scripts/.development-team

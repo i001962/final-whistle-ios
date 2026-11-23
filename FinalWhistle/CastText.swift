@@ -276,19 +276,40 @@ struct CastTextView: View {
     let cast: Cast
     var font: Font = .body
     var textColor: Color = .fwText
+    /// The author's name, shown inline at the start of the message
+    /// (the room's IRC-style line: the name and the message share
+    /// one line and wrap together). Nil means no name prefix.
+    var authorName: String? = nil
+    /// The author's color for that name. A stable per-author color,
+    /// so a name reads as who it is at a glance.
+    var authorColor: Color = .fwText
     /// Loaded emoji images, keyed by URL. Filled by the task below.
     @State private var emojiImages: [URL: UIImage] = [:]
 
     /// Inline emoji sit at line height: 1.2em on a 17pt body line.
     private var emojiHeight: CGFloat { 20 }
 
+    /// The author's name as the start of the message line: the name
+    /// in their color and semibold, then a space. Empty when there
+    /// is no author prefix.
+    private var authorPrefix: Text {
+        guard let authorName else { return Text("") }
+        return Text(authorName)
+            .font(font)
+            .fontWeight(.semibold)
+            .foregroundColor(authorColor)
+            + Text(" ")
+    }
+
     var body: some View {
         Group {
             if cast.isShortcodeOnlyEmojiMessage {
                 // Nothing to show as text: the stickers render large
-                // in the embeds view. An empty Text keeps the layout
-                // from collapsing oddly in a VStack.
-                Text("")
+                // in the embeds view. The author's name still shows
+                // on its own line, so a sticker-only message is
+                // attributed. An empty Text keeps the layout from
+                // collapsing oddly in a VStack.
+                authorPrefix
             } else {
                 textWithInlineEmoji
             }
@@ -302,9 +323,10 @@ struct CastTextView: View {
     /// loaded image inline. Text and image parts concatenate with
     /// `+`, and AttributedString runs keep mentions and links
     /// tappable. An emoji whose image has not loaded yet shows its
-    /// shortcode as text.
+    /// shortcode as text. The author's name (when set) leads the
+    /// line, so the name and the message share one flowing line.
     private var textWithInlineEmoji: Text {
-        var result = Text("")
+        var result = authorPrefix
         for segment in cast.textSegments {
             switch segment {
             case .text(let string):

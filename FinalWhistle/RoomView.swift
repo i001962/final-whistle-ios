@@ -483,6 +483,28 @@ private struct RoomMessageRow: View {
     let onLike: () -> Void
     let onReply: () -> Void
 
+    /// A stable color per author, so a name reads as who it is at a
+    /// glance (IRC nick colors). The FID hashes to one of six bright
+    /// colors that all read on the dark background.
+    private static func colorForFID(_ fid: UInt64) -> Color {
+        let palette: [Color] = [
+            Color(hex: "ff6b9d"),
+            Color(hex: "fea282"),
+            Color(hex: "a2e634"),
+            Color(hex: "7dd3fc"),
+            Color(hex: "c4b5fd"),
+            Color(hex: "fde047"),
+        ]
+        return palette[Int(fid % UInt64(palette.count))]
+    }
+
+    /// The author's name for the inline line: the username, not the
+    /// display name (a display name can say anything, the username
+    /// is who it is).
+    private var authorName: String {
+        cast.author.username ?? "fid:\(cast.author.fid.value)"
+    }
+
     var body: some View {
         HStack(alignment: .top, spacing: 10) {
             if let pfpURL = cast.author.pfpURL {
@@ -497,19 +519,6 @@ private struct RoomMessageRow: View {
             }
 
             VStack(alignment: .leading, spacing: 3) {
-                HStack(spacing: 6) {
-                    // The username, not the display name: a display name
-                    // can say anything, the username is who it is.
-                    Text(cast.author.username ?? "fid:\(cast.author.fid.value)")
-                        .font(.subheadline)
-                        .fontWeight(.semibold)
-                        .foregroundStyle(Color.fwText)
-                        .lineLimit(1)
-                    Text(cast.timestamp, style: .relative)
-                        .font(.caption)
-                        .foregroundStyle(Color.fwMuted)
-                }
-
                 // The message this answers, as one small line: a name
                 // and a snippet, no card, no extra indent. The old
                 // version was a padded two-line card that pushed the
@@ -527,9 +536,17 @@ private struct RoomMessageRow: View {
                     }
                 }
 
-                CastTextView(cast: cast)
-                    .font(.subheadline)
-                    .foregroundStyle(Color.fwText)
+                // The name and the message share one flowing line:
+                // the name in the author's color leads, the message
+                // follows and wraps under it. No separate header, no
+                // timestamp here — the time is disclosed on long press.
+                CastTextView(
+                    cast: cast,
+                    authorName: authorName,
+                    authorColor: Self.colorForFID(cast.author.fid.value)
+                )
+                .font(.subheadline)
+                .foregroundStyle(Color.fwText)
 
                 // Embeds: a sticker draws bare, a photo framed
                 // (CastEmbedsView splits them). A sticker-only message
@@ -549,8 +566,10 @@ private struct RoomMessageRow: View {
         // narrow and stays shifted. The row's own width must be full
         // for the double rotation to land it on the left edge.
         .frame(maxWidth: .infinity, alignment: .leading)
-        // Reply and like live on a long press, not on the row: the
-        // row is just who said it, when, and what they said.
+        // Reply, like, and the time live on a long press, not on the
+        // row: the row is just who said it and what they said. The
+        // time is disclosed here, with the actions, instead of
+        // taking a line on every message.
         .contextMenu {
             Button(action: onReply) {
                 Label("Reply", systemImage: "arrowshape.turn.up.left")
@@ -558,6 +577,11 @@ private struct RoomMessageRow: View {
             Button(action: onLike) {
                 Label(liked ? "Unlike" : "Like", systemImage: liked ? "heart.fill" : "heart")
             }
+            // The time, as an informational row: the full date and
+            // time, not the relative "37 min" the feed shows.
+            Text(cast.timestamp, style: .date)
+                + Text(" ")
+                + Text(cast.timestamp, style: .time)
         }
     }
 }

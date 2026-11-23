@@ -334,12 +334,12 @@ struct CastTextView: View {
                 result = result + Text(run)
             case .emoji(let url, let alt):
                 if let image = emojiImages[url] {
-                    result = result + Text(
-                        Image(uiImage: image)
-                            .resizable()
-                            .scaledToFit()
-                            .frame(width: emojiHeight, height: emojiHeight)
-                    )
+                    // The image is already resized to line height
+                    // when loaded, so a plain Image renders inline
+                    // at the right size. No view modifiers here: a
+                    // modified Image is a generic View, and Text has
+                    // no initializer that takes one.
+                    result = result + Text(Image(uiImage: image))
                 } else {
                     var run = AttributedString(alt)
                     run.font = font
@@ -353,6 +353,9 @@ struct CastTextView: View {
 
     /// Fetch the emoji images for this cast's segments. Cached by
     /// URLSession, so a sticker seen once does not refetch on scroll.
+    /// Each image is resized to line height on load, so the Text
+    /// below can use a plain Image (a modified Image is a generic
+    /// View, and Text cannot take one).
     private func loadEmojiImages() async {
         let urls = Set(cast.textSegments.compactMap { segment -> URL? in
             if case .emoji(let url, _) = segment { return url }
@@ -362,7 +365,20 @@ struct CastTextView: View {
             guard let (data, _) = try? await URLSession.shared.data(from: url),
                   let image = UIImage(data: data)
             else { continue }
-            emojiImages[url] = image
+            emojiImages[url] = resizedForInline(image)
+        }
+    }
+
+    /// Scale an image down to fit in an emojiHeight square, keeping
+    /// its aspect ratio. Small images are left alone, never upscaled.
+    private func resizedForInline(_ image: UIImage) -> UIImage {
+        let size = image.size
+        guard size.width > 0, size.height > 0 else { return image }
+        let scale = min(emojiHeight / size.width, emojiHeight / size.height)
+        guard scale < 1 else { return image }
+        let newSize = CGSize(width: size.width * scale, height: size.height * scale)
+        return UIGraphicsImageRenderer(size: newSize).image { _ in
+            image.draw(in: CGRect(origin: .zero, size: newSize))
         }
     }
 }

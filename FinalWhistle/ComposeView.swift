@@ -60,6 +60,67 @@ struct ComposeView: View {
     /// the tray as :mine:<name>:.
     @State private var showingAddEmoji = false
 
+    /// The @mention being typed, if any, and the users that match
+    /// it. When the text ends with @ + word characters, the composer
+    /// searches for matching usernames and offers them below the
+    /// editor; tapping one completes the @username in the text. The
+    /// mention itself is plain text — it is resolved to an FID and
+    /// encoded per the mention rule when posting, the same as a name
+    /// typed out in full.
+    @State private var mentionQuery: String?
+    @State private var mentionResults: [UserResponse.User] = []
+    @State private var mentionSearchTask: Task<Void, Never>?
+
+    /// The @mention being typed, if the text ends with @ + word
+    /// characters. The @ must start a word (start of text or after
+    /// whitespace), so an email address never triggers the lookup.
+    /// Returns the query after the @, or nil when the user is not
+    /// typing a mention.
+    private func mentionQuery(in text: String) -> String? {
+        let pattern = "(?:^|\\s)@([A-Za-z0-9_.-]+)$"
+        guard let regex = try? NSRegularExpression(pattern: pattern),
+              let match = regex.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)),
+              let range = Range(match.range(at: 1), in: text) else { return nil }
+        return String(text[range])
+    }
+
+    /// Search for users matching the mention being typed, debounced
+    /// so a fast typist fires one search, not one per keystroke.
+    /// Each new keystroke cancels the previous search, so only the
+    /// latest query's results are ever shown. A failed search just
+    /// hides the list; the user can still type the name out in full
+    /// and it resolves at post time.
+    private func updateMentionSearch(for query: String?) {
+        mentionSearchTask?.cancel()
+        guard let query, !query.isEmpty else {
+            mentionQuery = nil
+            mentionResults = []
+            return
+        }
+        mentionQuery = query
+        mentionSearchTask = Task {
+            try? await Task.sleep(nanoseconds: 300_000_000)
+            guard !Task.isCancelled else { return }
+            let users = (try? await FeedService.searchUsers(query: query)) ?? []
+            guard !Task.isCancelled else { return }
+            mentionResults = Array(users.prefix(5))
+        }
+    }
+
+    /// Replace the @query being typed with the picked user's
+    /// @username, plus a trailing space so the user can keep typing.
+    /// The editor rebuilds from the binding and the cursor lands at
+    /// the end, which is where the mention was.
+    private func pickMention(_ user: UserResponse.User) {
+        guard let username = user.username, let query = mentionQuery else { return }
+        let token = "@" + query
+        guard text.hasSuffix(token) else { return }
+        text = String(text.dropLast(token.count)) + "@" + username + " "
+        mentionSearchTask?.cancel()
+        mentionQuery = nil
+        mentionResults = []
+    }
+
     /// Attach an emoji to this post: its shortcode goes into the
     /// text at the end (so it renders inline on the reader side),
     /// and the editor shows it as its picture. A sticker already in
@@ -219,6 +280,71 @@ struct ComposeView: View {
                 )
                 .frame(minHeight: 140)
                 .accessibilityLabel(title)
+                .onChange(of: text) { _, newValue in
+                    updateMentionSearch(for: mentionQuery(in: newValue))
+                }
+
+                if !mentionResults.isEmpty {
+                    // The @mention matches, right under the editor:
+                    // tap one to complete the name in the text. The
+                    // list only shows while a mention is being typed
+                    // at the end of the text; picking one, or typing
+                    // a space, hides it.
+                    VStack(alignment: .leading, spacing: 0) {
+                        ForEach(mentionResults, id: \.fid.value) { user in
+                            Button {
+                                pickMention(user)
+                            } label: {
+                                HStack(spacing: 10) {
+                                    if let pfpURL = user.pfpURL {
+                                        AsyncImage(url: pfpURL) { phase in
+                                            switch phase {
+                                            case .success(let image):
+                                                image.resizable().scaledToFill()
+                                            case .failure, .empty:
+                                                Image(systemName: "person.circle.fill")
+                                                    .resizable()
+                                                    .foregroundStyle(Color.fwMuted)
+                                            @unknown default:
+                                                EmptyView()
+                                            }
+                                        }
+                                        .frame(width: 32, height: 32)
+                                        .clipShape(Circle())
+                                    } else {
+                                        Image(systemName: "person.circle.fill")
+                                            .resizable()
+                                            .foregroundStyle(Color.fwMuted)
+                                            .frame(width: 32, height: 32)
+                                    }
+                                    VStack(alignment: .leading, spacing: 1) {
+                                        Text(user.displayName ?? user.username ?? "fid:\(user.fid.value)")
+                                            .font(.subheadline)
+                                            .fontWeight(.semibold)
+                                            .foregroundStyle(Color.fwText)
+                                            .lineLimit(1)
+                                        Text("@\(user.username ?? "")")
+                                            .font(.footnote)
+                                            .foregroundStyle(.secondary)
+                                            .lineLimit(1)
+                                    }
+                                    Spacer()
+                                    if let followers = user.followerCount {
+                                        Text("\(followers) followers")
+                                            .font(.caption)
+                                            .foregroundStyle(.secondary)
+                                    }
+                                }
+                                .padding(.vertical, 6)
+                                .padding(.horizontal, 10)
+                                .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                    .background(Color.fwPanel, in: RoundedRectangle(cornerRadius: 12))
+                    .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.fwLine, lineWidth: 1))
+                }
 
                 if let quoted {
                     // The quoted cast sits BELOW your words, as an

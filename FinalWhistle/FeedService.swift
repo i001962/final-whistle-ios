@@ -172,16 +172,39 @@ struct FeedService {
         return try decoder().decode(Cast.self, from: data)
     }
 
+    /// Search users by username prefix, for the @mention autocomplete:
+    /// GET /v2/farcaster/user/search?q=<query> returns up to 25 users
+    /// ordered by relevance, each with fid, username, display name,
+    /// pfp and follower count, decoded by the same UserResponse.User.
+    /// An empty query returns nothing — the caller only searches once
+    /// the user has typed at least one character after the @.
+    static func searchUsers(query: String) async throws -> [UserResponse.User] {
+        let q = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !q.isEmpty,
+              let encoded = q.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) else {
+            return []
+        }
+        struct Response: Decodable { let users: [UserResponse.User] }
+        let response: Response = try await get("/v2/farcaster/user/search?q=\(encoded)")
+        return response.users
+    }
+
+    /// Resolve a @username token to its FID. This uses the search
+    /// endpoint with an exact (case-insensitive) match on the
+    /// username, NOT by-username: by-username is fname-based, so it
+    /// returns "User not found" for a dotted name like kmacb.eth
+    /// (the user's own account, FID 4163) and the WRONG person for
+    /// kmacb (FID 3331652, a different account). Search returns the
+    /// dotted name first, so the exact match lands on the right FID.
+    /// A token that matches nobody resolves to nil and the mention is
+    /// left as plain text.
     static func fid(forUsername username: String) async throws -> FID? {
         let name = username.trimmingCharacters(in: .whitespacesAndNewlines)
             .replacingOccurrences(of: "@", with: "")
-        guard !name.isEmpty,
-              let encoded = name.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) else {
-            return nil
-        }
+        guard !name.isEmpty else { return nil }
         do {
-            let response: UsernameLookupResponse = try await get("/v2/farcaster/user/by-username?username=\(encoded)")
-            return response.user.fid
+            let users = try await searchUsers(query: name)
+            return users.first { $0.username?.lowercased() == name.lowercased() }?.fid
         } catch {
             logger.info("username lookup failed for \(name): \(error.localizedDescription)")
             return nil

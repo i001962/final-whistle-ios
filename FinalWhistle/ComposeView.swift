@@ -53,6 +53,10 @@ struct ComposeView: View {
     /// The emoji tray above the editor. Same tray as the room: tap
     /// an emoji to add it to the post being written.
     @State private var showStickerTray = false
+    /// The add-your-own-emoji sheet, opened from the tray's plus
+    /// button. Paste a direct image link and a name, and it joins
+    /// the tray as :mine:<name>:.
+    @State private var showingAddEmoji = false
 
     /// Attach an emoji to this post: its shortcode goes into the
     /// text at the end (so it renders inline on the reader side),
@@ -185,6 +189,20 @@ struct ComposeView: View {
                                 }
                                 .accessibilityLabel(sticker.label)
                             }
+                            // Your own emoji: paste a direct image link
+                            // and give it a name, and it joins the tray
+                            // as :mine:<name>:.
+                            Button {
+                                showingAddEmoji = true
+                            } label: {
+                                Image(systemName: "plus")
+                                    .font(.title3)
+                                    .foregroundStyle(Color.fwAccent)
+                                    .frame(width: 44, height: 44)
+                                    .background(Color.fwPanel, in: Circle())
+                                    .overlay(Circle().stroke(Color.fwLine, lineWidth: 1))
+                            }
+                            .accessibilityLabel("Add your own emoji")
                         }
                         .padding(.vertical, 4)
                     }
@@ -331,6 +349,9 @@ struct ComposeView: View {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
                     editorFocused = true
                 }
+            }
+            .sheet(isPresented: $showingAddEmoji) {
+                AddEmojiView()
             }
         }
     }

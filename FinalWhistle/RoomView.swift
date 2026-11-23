@@ -92,6 +92,10 @@ struct RoomView: View {
     /// its shortcode to the draft and its image to the pending
     /// embeds; nothing posts until the user hits send.
     @State private var showStickerTray = false
+    /// The add-your-own-emoji sheet, opened from the tray's plus
+    /// button. Paste a direct image link and a name, and it joins
+    /// the tray as :mine:<name>:.
+    @State private var showingAddEmoji = false
     /// Sticker image URLs to attach when this draft sends. Kept in
     /// sync with the shortcodes in the draft text.
     @State private var pendingStickerURLs: [String] = []
@@ -165,6 +169,9 @@ struct RoomView: View {
         }
         .sheet(isPresented: $showingProfile) {
             ProfileView()
+        }
+        .sheet(isPresented: $showingAddEmoji) {
+            AddEmojiView()
         }
     }
 
@@ -290,6 +297,20 @@ struct RoomView: View {
                             }
                             .accessibilityLabel(sticker.label)
                         }
+                        // Your own emoji: paste a direct image link
+                        // and give it a name, and it joins the tray
+                        // as :mine:<name>:.
+                        Button {
+                            showingAddEmoji = true
+                        } label: {
+                            Image(systemName: "plus")
+                                .font(.title3)
+                                .foregroundStyle(Color.fwAccent)
+                                .frame(width: 44, height: 44)
+                                .background(Color.fwPanel, in: Circle())
+                                .overlay(Circle().stroke(Color.fwLine, lineWidth: 1))
+                        }
+                        .accessibilityLabel("Add your own emoji")
                     }
                     .padding(.horizontal, 16)
                     .padding(.vertical, 8)

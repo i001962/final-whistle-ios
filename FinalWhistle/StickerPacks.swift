@@ -157,6 +157,35 @@ final class StickerStore: ObservableObject {
         ) != nil
     }
 
+    /// Add an image URL to "My stickers" with an explicit name, the
+    /// id the shortcode uses (`:mine:<label>:`). The label is the
+    /// emoji's name, so it must fit the shortcode charset: a letter,
+    /// digit or underscore first, then up to 31 letters, digits,
+    /// underscores or dashes. Returns false when the URL is not an
+    /// https link, the name is not a valid shortcode id, or the URL
+    /// is already in a pack. It deliberately does NOT check the
+    /// address for an image extension: the caller proves the link is
+    /// an image by content type before calling here, and an image
+    /// served at an extension-less URL (a Castrater public file, an
+    /// image CDN) is a valid sticker.
+    @discardableResult
+    func addSticker(url: String, label: String) -> Bool {
+        let label = label.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard let parsed = URL(string: url),
+              parsed.scheme == "https",
+              !label.isEmpty,
+              label.range(of: #"^[a-z0-9_][a-z0-9_-]{0,31}$"#, options: .regularExpression) != nil,
+              !packs.flatMap(\.stickers).contains(where: { $0.url == url }),
+              !packs.flatMap(\.stickers).contains(where: { $0.label.lowercased() == label })
+        else { return false }
+        if packs.isEmpty {
+            packs = [StickerPack(id: "mine", title: "My stickers", stickers: [])]
+        }
+        packs[0].stickers.append(Sticker(url: url, label: label))
+        try? store.save(packs)
+        return true
+    }
+
     /// Add an image URL to "My stickers". Returns false when the URL
     /// is not an https link or is already in a pack. It deliberately
     /// does NOT check the address for an image extension: the picker
@@ -175,6 +204,26 @@ final class StickerStore: ObservableObject {
         let label = parsed.deletingPathExtension().lastPathComponent
         packs[0].stickers.append(Sticker(url: url, label: label.isEmpty ? "Sticker" : label))
         try? store.save(packs)
+        return true
+    }
+
+    /// True when the URL serves an image, by content type. HEAD first
+    /// (no body); some hosts don't answer HEAD, so a ranged GET is
+    /// the fallback. A page URL comes back as text/html and fails.
+    /// Shared by the sticker picker and the add-emoji sheet.
+    static func urlIsImage(_ url: URL) async -> Bool {
+        var head = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 10)
+        head.httpMethod = "HEAD"
+        if let (_, response) = try? await URLSession.shared.data(for: head),
+           let http = response as? HTTPURLResponse,
+           let mime = http.mimeType, mime.hasPrefix("image/") {
+            return true
+        }
+        var get = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 10)
+        get.setValue("bytes=0-0", forHTTPHeaderField: "Range")
+        guard let (_, response) = try? await URLSession.shared.data(for: get),
+              let http = response as? HTTPURLResponse,
+              let mime = http.mimeType, mime.hasPrefix("image/") else { return false }
         return true
     }
 
@@ -404,19 +453,115 @@ struct StickerPickerSheet: View {
     /// (no body); some hosts don't answer HEAD, so a ranged GET is
     /// the fallback. A page URL comes back as text/html and fails.
     private func urlIsImage(_ url: URL) async -> Bool {
-        var head = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 10)
-        head.httpMethod = "HEAD"
-        if let (_, response) = try? await URLSession.shared.data(for: head),
-           let http = response as? HTTPURLResponse,
-           let mime = http.mimeType, mime.hasPrefix("image/") {
-            return true
+        await StickerStore.urlIsImage(url)
+    }
+}
+
+/// Add your own emoji by URL: paste a direct image link and give
+/// it a name, and it joins "My stickers" as `:mine:<name>:`.
+/// The name is the shortcode id, so it must fit the shortcode
+/// charset (letters, digits, underscores and dashes, starting with
+/// a letter, digit or underscore). The image is proved by content
+/// type, not by the spelling of the URL, so an extension-less image
+/// link works. Once added, the emoji sits in the tray next to Banny
+/// and taps in like any other inline emoji: the shortcode goes in
+/// the text and the image travels as an embed, which is what the
+/// reader resolves the shortcode against.
+struct AddEmojiView: View {
+    @ObservedObject private var store = StickerStore.shared
+    @Environment(\.dismiss) private var dismiss
+
+    @State private var urlField = ""
+    @State private var nameField = ""
+    @State private var error: String?
+    @State private var checking = false
+
+    var body: some View {
+        NavigationStack {
+            VStack(alignment: .leading, spacing: 16) {
+                Text("One emoji is one picture — paste a direct link to an image file (.png, .jpg, .webp or .gif) and give it a name. It joins your stickers as :mine:your-name:.")
+                    .font(.subheadline)
+                    .foregroundStyle(Color.fwMuted)
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Image link")
+                        .font(.subheadline)
+                        .foregroundStyle(Color.fwText)
+                    TextField("https://…", text: $urlField)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                        .submitLabel(.next)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 10)
+                        .background(Color.fwPanel, in: RoundedRectangle(cornerRadius: 12))
+                }
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Name")
+                        .font(.subheadline)
+                        .foregroundStyle(Color.fwText)
+                    TextField("e.g. dance", text: $nameField)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                        .submitLabel(.done)
+                        .onSubmit { Task { await add() } }
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 10)
+                        .background(Color.fwPanel, in: RoundedRectangle(cornerRadius: 12))
+                    Text("Letters, numbers, _ and -, starting with a letter, number or _. This is the name you type between the colons.")
+                        .font(.caption)
+                        .foregroundStyle(Color.fwMuted)
+                }
+                Button(checking ? "Checking…" : "Add emoji") { Task { await add() } }
+                    .foregroundStyle(Color.fwAccent)
+                    .disabled(checking || urlField.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || nameField.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                if let error {
+                    Text(error)
+                        .font(.caption)
+                        .foregroundStyle(Color.fwAccentSoft)
+                }
+                Spacer()
+            }
+            .padding(16)
+            .background(Color.fwBackground)
+            .navigationTitle("Add an emoji")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button { dismiss() } label: {
+                        Label("Back", systemImage: "chevron.left")
+                    }
+                }
+            }
         }
-        var get = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 10)
-        get.setValue("bytes=0-0", forHTTPHeaderField: "Range")
-        guard let (_, response) = try? await URLSession.shared.data(for: get),
-              let http = response as? HTTPURLResponse,
-              let mime = http.mimeType, mime.hasPrefix("image/") else { return false }
-        return true
+    }
+
+    private func add() async {
+        let raw = urlField.trimmingCharacters(in: .whitespacesAndNewlines)
+        let name = nameField.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard let url = URL(string: raw), url.scheme == "https" else {
+            error = "That needs to be a full https:// link."
+            return
+        }
+        guard name.range(of: #"^[a-z0-9_][a-z0-9_-]{0,31}$"#, options: .regularExpression) != nil else {
+            error = "That name doesn't fit. Use letters, numbers, _ and -, starting with a letter, number or _."
+            return
+        }
+        // Fast path: a direct image link (extension or known image
+        // host) needs no network check.
+        if !CastMedia.isImageURL(url) {
+            checking = true
+            error = nil
+            let isImage = await StickerStore.urlIsImage(url)
+            checking = false
+            guard isImage else {
+                error = "That link isn't a picture. Paste a direct link to an image file — one ending in .png, .jpg, .webp or .gif — not a web page."
+                return
+            }
+        }
+        if store.addSticker(url: raw, label: name) {
+            dismiss()
+        } else {
+            error = "That link or name is already in your stickers."
+        }
     }
 }
 

@@ -19,9 +19,12 @@ private let wysiwygShortcodePattern = #":([a-z0-9_][a-z0-9_-]{0,31}):([a-z0-9_][
 /// The emoji image cache, shared so a fetched image is available to
 /// every editor without refetching. It also tracks which URLs are
 /// already being fetched, so a rebuild does not start a second
-/// fetch for the same image.
+/// fetch for the same image. The mutable state is guarded by an
+/// NSLock, so the shared instance is thread-safe; the
+/// `nonisolated(unsafe)` is Swift 6's way of saying that, the same
+/// pattern StickerStore and ImageCache use.
 final class SharedEmojiImageCache {
-    static let shared = SharedEmojiImageCache()
+    nonisolated(unsafe) static let shared = SharedEmojiImageCache()
     private var cache: [URL: UIImage] = [:]
     private var inflight: Set<URL> = []
     private let lock = NSLock()

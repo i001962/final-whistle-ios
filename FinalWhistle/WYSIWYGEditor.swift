@@ -1,34 +1,15 @@
 import SwiftUI
 import UIKit
 
-/// An NSTextAttachment that carries the shortcode it stands for, so
-/// the editor can turn the displayed text back into plain text
-/// (with shortcodes) for posting. The image is the emoji; the
-/// shortcode is the emoji's reference (pack + emoji id).
-/// The copy override matters: a UITextView copies the attributed
-/// string into its text storage, and the base NSTextAttachment copy
-/// returns a plain NSTextAttachment, dropping the subclass and the
-/// shortcode with it. After that the reader sees an attachment it
-/// cannot turn back into a shortcode, so the draft comes back as an
-/// invisible object-replacement character and the field goes blank
-/// after two emojis. Copying as an EmojiAttachment keeps the
-/// shortcode attached to the picture.
-final class EmojiAttachment: NSTextAttachment {
-    var shortcode: String = ""
-    var imageURL: URL?
-
-    override func copy(with zone: NSZone? = nil) -> Any {
-        let copy = EmojiAttachment()
-        copy.shortcode = shortcode
-        copy.imageURL = imageURL
-        copy.image = image
-        copy.bounds = bounds
-        copy.contents = contents
-        copy.fileType = fileType
-        copy.fileWrapper = fileWrapper
-        return copy
-    }
-}
+/// The attribute key carrying an inline emoji's shortcode on its
+/// attachment character. The shortcode lives in the attribute, not
+/// on the attachment object: a UITextView copies the attributed
+/// string into its text storage, and the copy drops an
+/// NSTextAttachment subclass (and its shortcode with it) — and
+/// overriding copy(with:) does not compile, because NSTextAttachment
+/// exposes no overridable copy to Swift. Attributes survive the
+/// copy, so the shortcode rides on the character, not the object.
+private let emojiShortcodeAttributeKey = NSAttributedString.Key("FinalWhistleEmojiShortcode")
 
 /// The shortcode shape, shared with CastText's renderer: a pack id
 /// and an emoji id, each starting with a letter, digit or
@@ -306,13 +287,20 @@ struct WYSIWYGEditor: UIViewRepresentable {
 
     /// The plain text behind a displayed attributed string: an emoji
     /// attachment becomes its shortcode again, everything else is
-    /// its literal text. This is what gets posted.
+    /// its literal text. This is what gets posted. The shortcode is
+    /// read from the attribute on the attachment character, not from
+    /// the attachment object, because the text view's copy drops an
+    /// attachment subclass.
     static func plainText(from attributed: NSAttributedString) -> String {
         var out = ""
         let full = NSRange(location: 0, length: attributed.length)
         attributed.enumerateAttributes(in: full, options: []) { attrs, range, _ in
-            if let attachment = attrs[.attachment] as? EmojiAttachment {
-                out += attachment.shortcode
+            if let shortcode = attrs[emojiShortcodeAttributeKey] as? String {
+                out += shortcode
+            } else if attrs[.attachment] != nil {
+                // An attachment with no shortcode (an image that is
+                // not an emoji) has no plain-text form, so it
+                // contributes nothing to the posted text.
             } else {
                 out += attributed.attributedSubstring(from: range).string
             }
@@ -356,12 +344,11 @@ struct WYSIWYGEditor: UIViewRepresentable {
             if let url = StickerStore.shared.stickerURL(packID: packID, stickerID: emojiID) {
                 if let image = SharedEmojiImageCache.shared.image(for: url) {
                     // The image, sized to the line height so it sits
-                    // in the sentence like a character. The attachment
-                    // carries the shortcode, so the text survives
-                    // being read back out.
-                    let attachment = EmojiAttachment()
-                    attachment.shortcode = shortcode
-                    attachment.imageURL = url
+                    // in the sentence like a character. The shortcode
+                    // rides as an attribute on the attachment
+                    // character, so it survives the text view's copy
+                    // of the string.
+                    let attachment = NSTextAttachment()
                     attachment.image = resizedForLine(image, lineHeight: font.lineHeight)
                     // Align the picture to the text baseline: the
                     // attachment's bounds are in the line's coordinate
@@ -369,7 +356,9 @@ struct WYSIWYGEditor: UIViewRepresentable {
                     let height = font.lineHeight
                     let width = attachment.image.map { $0.size.width * height / max($0.size.height, 1) } ?? height
                     attachment.bounds = CGRect(x: 0, y: font.descender, width: width, height: height)
-                    out.append(NSAttributedString(attachment: attachment))
+                    let attachmentString = NSMutableAttributedString(attachment: attachment)
+                    attachmentString.addAttribute(emojiShortcodeAttributeKey, value: shortcode, range: NSRange(location: 0, length: attachmentString.length))
+                    out.append(attachmentString)
                 } else {
                     // Not loaded yet: show the delimiter for now and
                     // fetch in the background. When it lands, the

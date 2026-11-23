@@ -106,7 +106,20 @@ struct WYSIWYGEditor: UIViewRepresentable {
         tv.backgroundColor = .clear
         tv.textContainerInset = UIEdgeInsets(top: 8, left: 5, bottom: 8, right: 5)
         tv.textContainer.lineFragmentPadding = 0
-        tv.isScrollEnabled = !isSingleLine
+        // Scrolling stays on in both modes. With scrolling off, a
+        // UITextView grows to fit its content and SwiftUI gives it
+        // the whole composer area, which is how the room's box blew
+        // up to half the screen. With scrolling on, the view stays
+        // at its intrinsic one-line height; a long single line
+        // scrolls horizontally instead of growing.
+        tv.isScrollEnabled = true
+        // Single-line mode (the room) is one line, no wrapping:
+        // Return sends, and a pasted newline is clipped, not a
+        // second line.
+        if isSingleLine {
+            tv.textContainer.maximumNumberOfLines = 1
+            tv.textContainer.lineBreakMode = .byTruncatingTail
+        }
         tv.returnKeyType = isSingleLine ? .send : .default
         tv.autocorrectionType = .default
         tv.autocapitalizationType = .sentences
@@ -142,7 +155,13 @@ struct WYSIWYGEditor: UIViewRepresentable {
         context.coordinator.placeholderLabel?.isHidden = !text.isEmpty
         uiView.font = font
         uiView.textColor = textColor
-        uiView.isScrollEnabled = !isSingleLine
+        uiView.isScrollEnabled = true
+        if isSingleLine {
+            uiView.textContainer.maximumNumberOfLines = 1
+            uiView.textContainer.lineBreakMode = .byTruncatingTail
+        } else {
+            uiView.textContainer.maximumNumberOfLines = 0
+        }
         uiView.returnKeyType = isSingleLine ? .send : .default
         // Focus: the parent drives it (autofocus on appear). Only
         // call becomeFirstResponder when the parent asks and the

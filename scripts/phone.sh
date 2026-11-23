@@ -1,16 +1,86 @@
 #!/bin/bash
-# Build, install over the old copy, launch, and confirm it stays running.
+# Pull latest, build, install over the old copy, launch, and confirm it
+# stays running — one command.
 # Run on a Mac with Xcode 27.2 or later, from the repo root:
-#   ./scripts/phone.sh
+#   bash scripts/phone.sh
+# (bash works even on a fresh clone where the script is not executable yet.)
 # The phone must be connected by cable, unlocked, trusted, and in Developer Mode.
 # NOTE: the phone is on iOS 27.2.1. The Xcode SDK on the Mac must be 27.2.1 or
 # newer to install onto it; if Xcode 27.2 ships only the 27.2 SDK, update Xcode
 # first. IPHONEOS_DEPLOYMENT_TARGET stays at 26.0, which is lower than the phone.
+#
+# The pull handles Xcode's local rewrite of project.pbxproj the same way
+# sim.sh does: a reorder-only diff is discarded. But unlike the simulator,
+# a phone build NEEDS the development team, and the team lives in that
+# same file — so before discarding it the script saves the team id and
+# passes it back to xcodebuild as an override. The team survives every
+# pull, even when the remote pbxproj changed. If no team has ever been
+# selected, the build fails with "requires a development team": select
+# it once in Xcode (target FinalWhistle > Signing & Capabilities), then
+# re-run this script and it keeps it from then on.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 APP=FinalWhistle BUNDLE=app.final-whistle OUT=DerivedData.noindex
 LOG=$OUT/phone.log; mkdir -p "$OUT"
 fail() { grep -E 'error:|ERROR:|FailureReason' "$LOG" | sort -u | head -20 || true; echo "$1 failed. Log: $LOG" >&2; exit 1; }
+
+# 1. Pull, handling Xcode's local rewrite of project.pbxproj.
+#
+# Save the development team first: it lives in the local pbxproj, and
+# the discard below would throw it away. The team id is passed to
+# xcodebuild as an override at build time, so the pull can never lose it.
+TEAM=$(grep -m1 'DEVELOPMENT_TEAM' FinalWhistle.xcodeproj/project.pbxproj 2>/dev/null | sed -E 's/.*DEVELOPMENT_TEAM = ([A-Za-z0-9]+);.*/\1/' || true)
+TEAM=$(echo "$TEAM" | tr -d '[:space:]')
+if [ -n "$TEAM" ]; then
+  echo "Saved development team $TEAM; it will be passed to the build."
+else
+  echo "No development team in the project yet. If the build fails with 'requires a development team', select it once in Xcode (target FinalWhistle > Signing & Capabilities), then re-run." >&2
+fi
+
+# Heal a conflicted project.pbxproj by taking the remote version.
+# Only ever called for that one file: any other unmerged file stops
+# the script instead.
+heal_pbxproj_conflict() {
+  if git rev-parse -q --verify MERGE_HEAD >/dev/null; then
+    git merge --abort
+  fi
+  if [ -n "$(git stash list)" ] \
+     && [ "$(git stash show --name-only 'stash@{0}' | sort -u)" = "FinalWhistle.xcodeproj/project.pbxproj" ]; then
+    git stash drop
+  fi
+  git checkout HEAD -- FinalWhistle.xcodeproj/project.pbxproj
+  echo "project.pbxproj was conflicted; took the remote version. The saved team ($TEAM) is still passed to the build." >&2
+}
+
+if git ls-files -u | grep -q .; then
+  if [ -z "$(git ls-files -u | awk '{print $4}' | sort -u | grep -v '^FinalWhistle.xcodeproj/project.pbxproj$')" ]; then
+    echo "Found a leftover project.pbxproj conflict; healing it."
+    heal_pbxproj_conflict
+  else
+    echo "Unmerged files other than project.pbxproj; resolve them, then re-run." >&2
+    git ls-files -u | awk '{print $4}' | sort -u >&2
+    exit 1
+  fi
+fi
+
+if ! git diff --quiet -- FinalWhistle.xcodeproj/project.pbxproj; then
+  echo "Discarding Xcode's local rewrite of project.pbxproj (the team is saved above)."
+  git checkout -- FinalWhistle.xcodeproj/project.pbxproj
+fi
+git pull --ff-only origin main || { echo "git pull failed (local changes elsewhere?). Resolve them, then re-run." >&2; exit 1; }
+echo "Pulled $(git rev-parse --short HEAD)."
+
+# Secrets.swift holds the pfp upload API key and is gitignored, so a
+# fresh clone does not have it — but it IS listed in project.pbxproj.
+# Create an empty one from the template so the build never breaks for
+# that reason; pfp upload reports "not configured" until the real key
+# is pasted in. The file is untracked, so it never blocks a pull.
+if [ ! -f FinalWhistle/Secrets.swift ]; then
+  cp FinalWhistle/Secrets.example.swift FinalWhistle/Secrets.swift
+  echo "Created an empty FinalWhistle/Secrets.swift — paste the pfp API key there to enable photo upload." >&2
+fi
+
+# 2. Pick the phone, build, install, launch, confirm it stays running.
 xcrun devicectl list devices --json-output "$OUT/devices.json" >"$LOG" 2>&1
 UDID=$(python3 -c 'import json, sys
 d = [x["hardwareProperties"] for x in json.load(open(sys.argv[1]))["result"]["devices"]
@@ -20,8 +90,14 @@ d = [x["hardwareProperties"] for x in json.load(open(sys.argv[1]))["result"]["de
      and x["connectionProperties"].get("tunnelState") != "unavailable"]
 print(d[0]["udid"] if d else "")' "$OUT/devices.json")
 [ -n "$UDID" ] || { echo "No iPhone connected. Plug it in, unlock it and trust this Mac." >&2; exit 1; }
+# The team is an xcodebuild override, so it survives the pull above
+# even though the pbxproj was discarded and re-pulled.
+BUILD_ARGS=()
+if [ -n "$TEAM" ]; then
+  BUILD_ARGS+=(DEVELOPMENT_TEAM="$TEAM")
+fi
 xcodebuild -scheme "$APP" -destination "id=$UDID" -derivedDataPath "$OUT" \
-  -allowProvisioningUpdates -allowProvisioningDeviceRegistration build >>"$LOG" 2>&1 || fail Build
+  -allowProvisioningUpdates -allowProvisioningDeviceRegistration build "${BUILD_ARGS[@]}" >>"$LOG" 2>&1 || fail Build
 xcrun devicectl device install app --device "$UDID" \
   "$OUT/Build/Products/Debug-iphoneos/$APP.app" >>"$LOG" 2>&1 || fail Install
 xcrun devicectl device process launch --terminate-existing --device "$UDID" "$BUNDLE" >>"$LOG" 2>&1 || fail Launch

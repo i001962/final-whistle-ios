@@ -88,7 +88,13 @@ struct RoomView: View {
     @State private var sending = false
     @State private var sendError: String?
     @State private var showingProfile = false
-    @State private var showingStickers = false
+    /// The sticker tray above the text box. Tapping a sticker adds
+    /// its shortcode to the draft and its image to the pending
+    /// embeds; nothing posts until the user hits send.
+    @State private var showStickerTray = false
+    /// Sticker image URLs to attach when this draft sends. Kept in
+    /// sync with the shortcodes in the draft text.
+    @State private var pendingStickerURLs: [String] = []
     @State private var likedHashes: Set<String> = []
     @FocusState private var composerFocused: Bool
 
@@ -159,16 +165,6 @@ struct RoomView: View {
         }
         .sheet(isPresented: $showingProfile) {
             ProfileView()
-        }
-        .sheet(isPresented: $showingStickers) {
-            StickerPickerSheet { url in
-                // Close the panel first, so the user is back on the
-                // chat feed while the sticker sends. The picker's own
-                // dismiss() was not reliably closing the sheet, so
-                // the parent owns the dismissal by clearing the flag.
-                showingStickers = false
-                Task { await sendSticker(url) }
-            }
         }
     }
 
@@ -241,8 +237,10 @@ struct RoomView: View {
     }
 
     /// The composer: a reply chip when answering a message, then the
-    /// text field and send. Sending while signed out opens the account
-    /// sheet instead of failing.
+    /// sticker tray when open, then the text field and send. Sending
+    /// while signed out opens the account sheet instead of failing.
+    /// Tapping a sticker adds its shortcode to the draft and its
+    /// image to the pending embeds; nothing posts until send.
     private var composer: some View {
         VStack(spacing: 0) {
             if let replyingTo {
@@ -265,13 +263,86 @@ struct RoomView: View {
                 .background(Color.fwPanelSoft)
             }
 
+            if showStickerTray {
+                // The emoticons, above the text box: a horizontal
+                // strip of the packs' stickers. Tap one to add it
+                // to the post being written.
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 12) {
+                        ForEach(StickerStore.shared.allKnownPacks.flatMap(\.stickers), id: \.url) { sticker in
+                            Button {
+                                addStickerToDraft(url: sticker.url)
+                            } label: {
+                                AsyncImage(url: URL(string: sticker.url)) { phase in
+                                    switch phase {
+                                    case .success(let image):
+                                        image.resizable().scaledToFit()
+                                    case .failure:
+                                        Image(systemName: "photo")
+                                            .foregroundStyle(Color.fwMuted)
+                                    case .empty:
+                                        ProgressView().tint(Color.fwLime)
+                                    @unknown default:
+                                        EmptyView()
+                                    }
+                                }
+                                .frame(width: 44, height: 44)
+                            }
+                            .accessibilityLabel(sticker.label)
+                        }
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 8)
+                }
+                .background(Color.fwPanelSoft)
+            }
+
+            if !pendingStickerURLs.isEmpty {
+                // What is attached to this draft, with a remove
+                // button each. Removing one takes its shortcode out
+                // of the text too, so the two stay in sync.
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 10) {
+                        ForEach(pendingStickerURLs, id: \.self) { url in
+                            ZStack(alignment: .topTrailing) {
+                                AsyncImage(url: URL(string: url)) { phase in
+                                    switch phase {
+                                    case .success(let image):
+                                        image.resizable().scaledToFit()
+                                    case .failure:
+                                        Image(systemName: "photo")
+                                            .foregroundStyle(Color.fwMuted)
+                                    case .empty:
+                                        ProgressView().tint(Color.fwLime)
+                                    @unknown default:
+                                        EmptyView()
+                                    }
+                                }
+                                .frame(width: 44, height: 44)
+                                Button {
+                                    removeStickerFromDraft(url: url)
+                                } label: {
+                                    Image(systemName: "xmark.circle.fill")
+                                        .foregroundStyle(Color.fwText)
+                                        .background(Color.fwBackground, in: Circle())
+                                }
+                                .offset(x: 5, y: -5)
+                                .accessibilityLabel("Remove sticker")
+                            }
+                        }
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 6)
+                }
+            }
+
             HStack(spacing: 10) {
                 Button {
-                    showingStickers = true
+                    showStickerTray.toggle()
                 } label: {
                     Image(systemName: "face.smiling")
                         .font(.title2)
-                        .foregroundStyle(Color.fwMuted)
+                        .foregroundStyle(showStickerTray ? Color.fwAccent : Color.fwMuted)
                 }
                 .accessibilityLabel("Stickers")
 
@@ -311,6 +382,36 @@ struct RoomView: View {
         }
     }
 
+    /// Add a sticker to the draft being written: its shortcode goes
+    /// into the text (so it renders inline on the reader side) and
+    /// its image joins the pending embeds. Nothing posts until the
+    /// user hits send. A sticker already attached is not added twice,
+    /// and a cast holds at most 2 embeds.
+    private func addStickerToDraft(url: String) {
+        guard !pendingStickerURLs.contains(url), pendingStickerURLs.count < 2 else { return }
+        guard let shortcode = StickerStore.shared.shortcode(for: url) else { return }
+        StickerStore.shared.recordUse(url: url)
+        pendingStickerURLs.append(url)
+        if draft.isEmpty {
+            draft = shortcode + " "
+        } else if draft.hasSuffix(" ") || draft.hasSuffix("\n") {
+            draft += shortcode + " "
+        } else {
+            draft += " " + shortcode + " "
+        }
+    }
+
+    /// Take a sticker back out of the draft: drop its image from the
+    /// pending embeds and its shortcode from the text, so the two
+    /// stay in sync.
+    private func removeStickerFromDraft(url: String) {
+        pendingStickerURLs.removeAll { $0 == url }
+        if let shortcode = StickerStore.shared.shortcode(for: url) {
+            draft = draft.replacingOccurrences(of: shortcode + " ", with: "")
+            draft = draft.replacingOccurrences(of: shortcode, with: "")
+        }
+    }
+
     private func send() async {
         guard identity.isSignedIn else { showingProfile = true; return }
         let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -332,39 +433,15 @@ struct RoomView: View {
         // the same message. The default is always the root cast; a
         // reply to a message is one explicit long-press per message.
         replyingTo = nil
+        // The pending sticker images travel as embeds with the text.
+        // They are image URLs, so the reader draws them as pictures
+        // and the shortcodes in the text render inline against them.
+        let embeds = pendingStickerURLs
+        pendingStickerURLs = []
         do {
-            let hash = try await identity.reply(to: target, text: text)
+            let hash = try await identity.reply(to: target, text: text, linkURLs: embeds)
             draft = ""
             composerFocused = false
-            await reloadUntilVisible(hash: hash)
-        } catch {
-            sendError = error.localizedDescription
-        }
-        sending = false
-    }
-
-    /// Send a sticker: a cast with no text and the sticker image as
-    /// its only embed, replying to the message being answered — or
-    /// the room's root cast, like a plain message. Same
-    /// wait-for-it-to-land flow as send().
-    /// The sticker goes out as its shortcode (`:packid:emojiconid:`)
-    /// plus the image embed, so it renders inline — large, since the
-    /// text is only the shortcode — on a reader that knows the pack.
-    /// A sticker with no known shortcode (a bare pasted URL) still
-    /// sends as a bare embed, as before.
-    private func sendSticker(_ url: String) async {
-        guard identity.isSignedIn else { showingProfile = true; return }
-        guard !sending else { return }
-        guard let target = replyingTo ?? rootCast else {
-            sendError = "The room hasn't loaded yet — try again in a moment."
-            return
-        }
-        sending = true
-        sendError = nil
-        replyingTo = nil
-        do {
-            let shortcode = StickerStore.shared.shortcode(for: url) ?? ""
-            let hash = try await identity.replySticker(to: target, url: url, text: shortcode)
             await reloadUntilVisible(hash: hash)
         } catch {
             sendError = error.localizedDescription

@@ -37,6 +37,44 @@ struct ComposeView: View {
     @State private var isPosting = false
     @State private var error: String?
     @FocusState private var editorFocused: Bool
+    /// Sticker images attached to this post. Picking a sticker
+    /// inserts its shortcode (`:packid:emojiconid:`) into the text
+    /// and adds the image here; it does NOT post. The user writes
+    /// around it and hits Post, and the images travel as embeds.
+    /// The embed budget is 2 total (1 when quoting), shared with links.
+    @State private var attachedStickers: [String] = []
+    @State private var showingStickers = false
+
+    /// Attach a sticker to this post: its shortcode goes into the
+    /// text at the end (so it renders inline on the reader side),
+    /// and its image joins the embeds. A sticker already attached
+    /// is not added twice, and the embed budget caps how many fit.
+    private func attachSticker(url: String) {
+        let budget = quoted != nil ? 1 : 2
+        guard !attachedStickers.contains(url), attachedStickers.count < budget else { return }
+        guard let shortcode = StickerStore.shared.shortcode(for: url) else { return }
+        attachedStickers.append(url)
+        // Insert the shortcode at the end, with a space after it so
+        // the user can keep typing. If the text is empty the
+        // shortcode is the whole post and renders large.
+        if text.isEmpty {
+            text = shortcode + " "
+        } else if text.hasSuffix(" ") || text.hasSuffix("\n") {
+            text += shortcode + " "
+        } else {
+            text += " " + shortcode + " "
+        }
+    }
+
+    /// Detach a sticker: drop its image from the embeds and take its
+    /// shortcode out of the text, so the two stay in sync.
+    private func detachSticker(url: String) {
+        attachedStickers.removeAll { $0 == url }
+        if let shortcode = StickerStore.shared.shortcode(for: url) {
+            text = text.replacingOccurrences(of: shortcode + " ", with: "")
+            text = text.replacingOccurrences(of: shortcode, with: "")
+        }
+    }
 
     private let maxLength = 320
 
@@ -167,7 +205,53 @@ struct ComposeView: View {
                         .foregroundStyle(.red)
                 }
 
+                // Attached stickers, as thumbnails with a remove
+                // button. They travel as image embeds; the shortcode
+                // for each one is already in the text above.
+                if !attachedStickers.isEmpty {
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 10) {
+                            ForEach(attachedStickers, id: \.self) { url in
+                                ZStack(alignment: .topTrailing) {
+                                    AsyncImage(url: URL(string: url)) { phase in
+                                        switch phase {
+                                        case .success(let image):
+                                            image.resizable().scaledToFit()
+                                        case .failure:
+                                            Image(systemName: "photo")
+                                                .foregroundStyle(Color.fwMuted)
+                                        case .empty:
+                                            ProgressView().tint(Color.fwLime)
+                                        @unknown default:
+                                            EmptyView()
+                                        }
+                                    }
+                                    .frame(width: 56, height: 56)
+                                    Button {
+                                        detachSticker(url: url)
+                                    } label: {
+                                        Image(systemName: "xmark.circle.fill")
+                                            .foregroundStyle(Color.fwText)
+                                            .background(Color.fwBackground, in: Circle())
+                                    }
+                                    .offset(x: 6, y: -6)
+                                    .accessibilityLabel("Remove sticker")
+                                }
+                            }
+                        }
+                        .padding(.vertical, 4)
+                    }
+                }
+
                 HStack {
+                    Button {
+                        showingStickers = true
+                    } label: {
+                        Label("Sticker", systemImage: "face.smiling")
+                            .font(.footnote)
+                            .foregroundStyle(Color.fwAccentSoft)
+                    }
+                    .accessibilityLabel("Add a sticker")
                     Text("\(text.count)/\(maxLength)")
                         .font(.footnote)
                         .foregroundStyle(text.count > maxLength ? .red : .secondary)
@@ -208,6 +292,15 @@ struct ComposeView: View {
                     editorFocused = true
                 }
             }
+            .sheet(isPresented: $showingStickers) {
+                // Picking a sticker attaches it to this post (shortcode
+                // in the text, image in the embeds). It does not post:
+                // the user writes around it and hits Post.
+                StickerPickerSheet { url in
+                    showingStickers = false
+                    attachSticker(url: url)
+                }
+            }
         }
     }
 
@@ -217,15 +310,16 @@ struct ComposeView: View {
         error = nil
         defer { isPosting = false }
         do {
-            // Gather link candidates: the explicit link field first,
-            // then every URL in the text, in order. The embed budget
-            // is 2 total; a quote already takes 1, so a quote leaves
-            // room for 1 link and a plain post or reply leaves room
-            // for 2. When the budget is tight the explicit link wins
-            // and the text URLs past the budget stay as text. Every
-            // link that is attached is removed from the text, so the
-            // post does not show the URL as text above the picture
-            // or card.
+            // Gather embeds: attached stickers first (explicit),
+            // then links. The embed budget is 2 total; a quote
+            // already takes 1, so a quote leaves room for 1 link and
+            // a plain post or reply leaves room for 2. When the
+            // budget is tight the stickers win and the links past
+            // the budget stay as text. Every link that is attached
+            // is removed from the text, so the post does not show
+            // the URL as text above the picture or card. Sticker
+            // URLs are not in the text (only their shortcode is),
+            // so they are never stripped.
             var candidates: [String] = []
             if !trimmedLink.isEmpty {
                 candidates.append(trimmedLink)
@@ -233,8 +327,10 @@ struct ComposeView: View {
             for url in linkURLs(in: text) where !candidates.contains(url) {
                 candidates.append(url)
             }
-            let linkBudget = quoted != nil ? 1 : 2
-            let links = Array(candidates.prefix(linkBudget))
+            let embedBudget = quoted != nil ? 1 : 2
+            let stickerEmbeds = Array(attachedStickers.prefix(embedBudget))
+            let links = Array(candidates.prefix(max(0, embedBudget - stickerEmbeds.count)))
+            let embeds = stickerEmbeds + links
             var sendText = text
             for link in links {
                 sendText = sendText.replacingOccurrences(of: link, with: "")
@@ -243,11 +339,11 @@ struct ComposeView: View {
             sendText = sendText.replacingOccurrences(of: "\n{3,}", with: "\n\n", options: .regularExpression)
             let hash: String
             if let parent {
-                hash = try await identity.reply(to: parent, text: sendText, linkURLs: links)
+                hash = try await identity.reply(to: parent, text: sendText, linkURLs: embeds)
             } else if let quoted {
-                hash = try await identity.quote(cast: quoted, text: sendText, linkURLs: links)
+                hash = try await identity.quote(cast: quoted, text: sendText, linkURLs: embeds)
             } else {
-                hash = try await identity.post(text: sendText, linkURLs: links)
+                hash = try await identity.post(text: sendText, linkURLs: embeds)
             }
             // Success: back to the feed at once. The feed refreshes via
             // onPosted, so the new cast is at the top when it lands.

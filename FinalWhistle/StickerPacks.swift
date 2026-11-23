@@ -172,8 +172,10 @@ final class StickerStore: ObservableObject {
 
     /// Record that a sticker was sent. The picker calls this when a
     /// sticker is tapped, so the counts track what the user actually
-    /// reaches for, not what they added.
+    /// reaches for, not what they added. A built-in pack joins the
+    /// user's packs first, so its stickers can carry a use count.
     func recordUse(url: String) {
+        ensurePack(for: url)
         for packIndex in packs.indices {
             if let stickerIndex = packs[packIndex].stickers.firstIndex(where: { $0.url == url }) {
                 packs[packIndex].stickers[stickerIndex].useCount += 1

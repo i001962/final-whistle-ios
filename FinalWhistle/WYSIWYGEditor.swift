@@ -5,9 +5,29 @@ import UIKit
 /// the editor can turn the displayed text back into plain text
 /// (with shortcodes) for posting. The image is the emoji; the
 /// shortcode is the emoji's reference (pack + emoji id).
+/// The copy override matters: a UITextView copies the attributed
+/// string into its text storage, and the base NSTextAttachment copy
+/// returns a plain NSTextAttachment, dropping the subclass and the
+/// shortcode with it. After that the reader sees an attachment it
+/// cannot turn back into a shortcode, so the draft comes back as an
+/// invisible object-replacement character and the field goes blank
+/// after two emojis. Copying as an EmojiAttachment keeps the
+/// shortcode attached to the picture.
 final class EmojiAttachment: NSTextAttachment {
     var shortcode: String = ""
     var imageURL: URL?
+
+    override func copy(with zone: NSZone? = nil) -> Any {
+        let copy = EmojiAttachment()
+        copy.shortcode = shortcode
+        copy.imageURL = imageURL
+        copy.image = image
+        copy.bounds = bounds
+        copy.contents = contents
+        copy.fileType = fileType
+        copy.fileWrapper = fileWrapper
+        return copy
+    }
 }
 
 /// The shortcode shape, shared with CastText's renderer: a pack id
@@ -247,6 +267,16 @@ struct WYSIWYGEditor: UIViewRepresentable {
             // the rebuilt string back and clobbers the binding.
             guard !settingTextProgrammatically else { return }
             let plain = WYSIWYGEditor.plainText(from: textView.attributedText)
+            // A rebuild can fire this delegate a beat after the flag
+            // clears, while the view is still catching up. If the
+            // attributed string still has content but the plain-text
+            // read came back empty, the read is transient, not the
+            // user deleting everything — do not clobber the draft
+            // with it, or the emojis just added vanish and the field
+            // goes blank.
+            if plain.isEmpty && !parent.text.isEmpty && textView.attributedText.length > 0 {
+                return
+            }
             if plain != parent.text {
                 parent.text = plain
             }

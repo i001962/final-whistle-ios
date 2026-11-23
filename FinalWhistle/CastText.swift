@@ -69,7 +69,13 @@ extension Cast {
         let matches = inlineEmojiMatches
         guard (1...3).contains(matches.count) else { return false }
         var remainder = text
-        for match in matches {
+        // The match ranges point into the original text. Replacing
+        // front to back shifts the string, so the second range lands
+        // past the end of the shortened remainder and the app
+        // crashes (EXC_BAD_ACCESS) on any cast with two inline
+        // emoji. Replacing back to front keeps every earlier range
+        // valid, because each cut only moves text after it.
+        for match in matches.reversed() {
             remainder = remainder.replacingCharacters(in: match.range, with: "")
         }
         return remainder.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty

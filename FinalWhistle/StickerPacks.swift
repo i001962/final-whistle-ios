@@ -27,12 +27,64 @@ struct Sticker: Codable, Hashable {
     /// the old JSON still decodes.
     var useCount: Int = 0
     var lastUsedAt: Date? = nil
+
+    enum CodingKeys: String, CodingKey {
+        case url, label, id, useCount, lastUsedAt
+    }
+
+    init(url: String, label: String, useCount: Int = 0, lastUsedAt: Date? = nil) {
+        self.url = url
+        self.label = label
+        self.useCount = useCount
+        self.lastUsedAt = lastUsedAt
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        url = try c.decode(String.self, forKey: .url)
+        // The hosted manifest calls the sticker's name `id`; older
+        // saved packs call it `label`. Accept either, prefer `id`.
+        if let id = try c.decodeIfPresent(String.self, forKey: .id) {
+            label = id
+        } else {
+            label = try c.decode(String.self, forKey: .label)
+        }
+        useCount = try c.decodeIfPresent(Int.self, forKey: .useCount) ?? 0
+        lastUsedAt = try c.decodeIfPresent(Date.self, forKey: .lastUsedAt)
+    }
 }
 
 struct StickerPack: Codable, Hashable, Identifiable {
     let id: String
     let title: String
     var stickers: [Sticker]
+
+    enum CodingKeys: String, CodingKey {
+        case id, title, name, stickers
+    }
+
+    init(id: String, title: String, stickers: [Sticker]) {
+        self.id = id
+        self.title = title
+        self.stickers = stickers
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(String.self, forKey: .id)
+        // The hosted manifest calls the pack's display name `name`;
+        // older saved packs call it `title`. Accept either, prefer
+        // `name`. The manifest's other top-level fields (format,
+        // version, description, author) and each sticker's extra
+        // fields (alt, mimeType, width, height, sha256, tags) are
+        // ignored by the decoder.
+        if let name = try c.decodeIfPresent(String.self, forKey: .name) {
+            title = name
+        } else {
+            title = try c.decode(String.self, forKey: .title)
+        }
+        stickers = try c.decode([Sticker].self, forKey: .stickers)
+    }
 }
 
 final class StickerStore: ObservableObject {

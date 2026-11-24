@@ -23,13 +23,22 @@ struct Sticker: Codable, Hashable {
     let url: String
     let label: String
     /// How often the user has sent this sticker, and when they last
-    /// did. Old saved packs have neither field, so both default and
-    /// the old JSON still decodes.
+    /// did. A pack file without these fields decodes with the
+    /// defaults, so the hosted manifest (which has neither) reads
+    /// fine.
     var useCount: Int = 0
     var lastUsedAt: Date? = nil
 
+    /// The hosted manifest calls the sticker's name `id`; the
+    /// property stays `label` (every call site uses it), and this
+    /// mapping is what the synthesized Codable reads and writes.
+    /// No custom init: a custom init(from:) with extra CodingKeys
+    /// cases breaks the synthesized encode(to:), which is the
+    /// "does not conform to Encodable" error Xcode showed.
     enum CodingKeys: String, CodingKey {
-        case url, label, id, useCount, lastUsedAt
+        case url
+        case label = "id"
+        case useCount, lastUsedAt
     }
 
     init(url: String, label: String, useCount: Int = 0, lastUsedAt: Date? = nil) {
@@ -38,20 +47,6 @@ struct Sticker: Codable, Hashable {
         self.useCount = useCount
         self.lastUsedAt = lastUsedAt
     }
-
-    init(from decoder: Decoder) throws {
-        let c = try decoder.container(keyedBy: CodingKeys.self)
-        url = try c.decode(String.self, forKey: .url)
-        // The hosted manifest calls the sticker's name `id`; older
-        // saved packs call it `label`. Accept either, prefer `id`.
-        if let id = try c.decodeIfPresent(String.self, forKey: .id) {
-            label = id
-        } else {
-            label = try c.decode(String.self, forKey: .label)
-        }
-        useCount = try c.decodeIfPresent(Int.self, forKey: .useCount) ?? 0
-        lastUsedAt = try c.decodeIfPresent(Date.self, forKey: .lastUsedAt)
-    }
 }
 
 struct StickerPack: Codable, Hashable, Identifiable {
@@ -59,31 +54,23 @@ struct StickerPack: Codable, Hashable, Identifiable {
     let title: String
     var stickers: [Sticker]
 
+    /// The hosted manifest calls the pack's display name `name`;
+    /// the property stays `title`, and this mapping is what the
+    /// synthesized Codable reads and writes. The manifest's other
+    /// top-level fields (format, version, description, author) and
+    /// each sticker's extra fields (alt, mimeType, width, height,
+    /// sha256, tags) are ignored by the decoder. No custom init:
+    /// same Encodable breakage as Sticker (see there).
     enum CodingKeys: String, CodingKey {
-        case id, title, name, stickers
+        case id
+        case title = "name"
+        case stickers
     }
 
     init(id: String, title: String, stickers: [Sticker]) {
         self.id = id
         self.title = title
         self.stickers = stickers
-    }
-
-    init(from decoder: Decoder) throws {
-        let c = try decoder.container(keyedBy: CodingKeys.self)
-        id = try c.decode(String.self, forKey: .id)
-        // The hosted manifest calls the pack's display name `name`;
-        // older saved packs call it `title`. Accept either, prefer
-        // `name`. The manifest's other top-level fields (format,
-        // version, description, author) and each sticker's extra
-        // fields (alt, mimeType, width, height, sha256, tags) are
-        // ignored by the decoder.
-        if let name = try c.decodeIfPresent(String.self, forKey: .name) {
-            title = name
-        } else {
-            title = try c.decode(String.self, forKey: .title)
-        }
-        stickers = try c.decode([Sticker].self, forKey: .stickers)
     }
 }
 

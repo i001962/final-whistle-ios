@@ -137,6 +137,15 @@ if [ -n "${KEYCHAIN_PASSWORD:-}" ]; then
   security unlock-keychain -p "$KEYCHAIN_PASSWORD" ~/Library/Keychains/login.keychain-db || {
     echo "Could not unlock the login keychain with KEYCHAIN_PASSWORD. If the build fails with 'No Account for Team', unlock it in Keychain Access and re-run." >&2
   }
+  # Let codesign use the signing identity without prompting. Even
+  # with the keychain unlocked, macOS prompts again when xcodebuild
+  # accesses the private key at sign time. This grants codesign
+  # (and Apple tools) access to the key so the build runs
+  # non-interactively. It changes the keychain's access control
+  # for the signing key; run it once per keychain, it persists.
+  security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" ~/Library/Keychains/login.keychain-db 2>/dev/null || {
+    echo "Could not grant codesign access to the signing key. The build may still prompt when it signs." >&2
+  }
 else
   security unlock-keychain ~/Library/Keychains/login.keychain-db || {
     echo "Could not unlock the login keychain. If the build fails with 'No Account for Team', unlock it in Keychain Access and re-run." >&2

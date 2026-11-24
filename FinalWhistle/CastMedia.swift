@@ -48,9 +48,41 @@ extension Cast {
         }
     }
 
-    var imageEmbedURLs: [URL] { embedURLs.filter(CastMedia.isImageURL) }
+    var imageEmbedURLs: [URL] {
+        // Plain image embeds, plus emoji:// embeds resolved to their
+        // image through the sticker catalog. Folding the resolved
+        // URLs in here means the whole inline-emoji pipeline works
+        // unchanged: a shortcode matches its image by URL, consumed
+        // embeds are skipped once, and a shortcode-only message
+        // renders its stickers large. An emoji:// URI that does not
+        // resolve is dropped, so the shortcode stays literal text.
+        // A resolved URL already present as a plain image embed is
+        // not duplicated (a duplicate id in a ForEach crashes).
+        let plain = embedURLs.filter(CastMedia.isImageURL)
+        let resolved = resolvedEmojiImageURLs.filter { !plain.contains($0) }
+        return plain + resolved
+    }
     var videoEmbedURLs: [URL] { embedURLs.filter(CastMedia.isVideoURL) }
-    var linkEmbedURLs: [URL] { embedURLs.filter { !CastMedia.isImageURL($0) && !CastMedia.isVideoURL($0) } }
+    /// Link embeds, excluding emoji:// URIs: an emoji:// identifier
+    /// is not a page to preview. A resolvable one renders as its
+    /// image (see imageEmbedURLs); an unresolvable one renders as
+    /// nothing — the shortcode in the text is the fallback, not a
+    /// link card to a dead scheme.
+    var linkEmbedURLs: [URL] {
+        embedURLs.filter { !CastMedia.isImageURL($0) && !CastMedia.isVideoURL($0) && $0.scheme?.lowercased() != "emoji" }
+    }
+    /// The embed URLs that are emoji:// identifiers (scheme `emoji`),
+    /// before resolution. These are the on-chain form of the room's
+    /// emoji experiment: a short pack-scoped identifier, resolved
+    /// through the app's sticker catalog to an image URL.
+    var emojiEmbedURIs: [URL] { embedURLs.filter { $0.scheme?.lowercased() == "emoji" } }
+    /// The image URLs that emoji:// embeds resolve to, via the
+    /// sticker catalog. Unresolvable URIs (an unknown pack or emoji)
+    /// are dropped here, which is what makes the shortcode the
+    /// fallback: with no image to match, the shortcode stays text.
+    var resolvedEmojiImageURLs: [URL] {
+        emojiEmbedURIs.compactMap { StickerStore.shared.resolveEmojiURI($0.absoluteString) }
+    }
     var quotedCasts: [CastEmbed.CastIDRef] { embeds?.compactMap(\.castID) ?? [] }
 }
 

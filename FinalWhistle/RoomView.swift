@@ -425,12 +425,18 @@ struct RoomView: View {
         // the same message. The default is always the root cast; a
         // reply to a message is one explicit long-press per message.
         replyingTo = nil
-        // The sticker images travel as embeds with the text. They
-        // are derived from the shortcodes in the draft, so a sticker
-        // the user backspaced out of the editor is not sent. They
-        // are image URLs, so the reader draws them as pictures and
-        // the shortcodes in the text render inline against them.
-        let embeds = Array(StickerStore.shared.stickerURLs(forShortcodesIn: text).prefix(2))
+        // The emoji travel as embeds with the text, as emoji://
+        // identifiers, not image URLs (the room experiment): they are
+        // derived from the shortcodes in the draft, so an emoji the
+        // user backspaced out of the editor is not sent. The cast
+        // carries `emoji://banny/goal` on-chain; the reader resolves
+        // it through their sticker catalog to the image, and the
+        // shortcode in the text renders inline against it. An
+        // identifier the reader cannot resolve leaves the shortcode
+        // as literal text. The embeds are identifiers, so the reader
+        // draws them as pictures only after resolving them — the
+        // send path just puts the string in Embed field 1.
+        let embeds = Array(StickerStore.shared.stickerEmojiURIs(forShortcodesIn: text).prefix(2))
         do {
             let hash = try await identity.reply(to: target, text: text, linkURLs: embeds)
             draft = ""

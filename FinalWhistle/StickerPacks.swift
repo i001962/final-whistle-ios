@@ -60,21 +60,21 @@ final class StickerStore: ObservableObject {
     // MARK: - Built-in packs (static, shipped with the app)
 
     /// Packs that ship with the app, not entered by the user. The
-    /// banny images are the d33m art, served straight from the
-    /// footy-fc/d33m repo on GitHub (raw.githubusercontent.com) —
-    /// the art already lives there publicly, so the pack works with
-    /// no file upload and no VPS step. A sticker in a built-in pack
-    /// renders as a sticker for everyone, even a reader who has not
-    /// added the pack — the pack is the shared registry, the same
-    /// shape as Slack's workspace emoji list.
+    /// banny images are the d33m art, served as WebP from the
+    /// Castrater storage bucket (qstorage.quilibrium.com) — the same
+    /// art as the d33m repo, in the folder the emoji:// experiment
+    /// resolves against. A sticker in a built-in pack renders as a
+    /// sticker for everyone, even a reader who has not added the
+    /// pack — the pack is the shared registry, the same shape as
+    /// Slack's workspace emoji list.
     static let builtInPacks: [StickerPack] = [
         StickerPack(id: "banny", title: "Banny", stickers: [
-            Sticker(url: "https://raw.githubusercontent.com/footy-fc/d33m/main/public/assets/banny_goal.png", label: "goal"),
-            Sticker(url: "https://raw.githubusercontent.com/footy-fc/d33m/main/public/assets/banny_lfg.png", label: "lfg"),
-            Sticker(url: "https://raw.githubusercontent.com/footy-fc/d33m/main/public/assets/banny_popcorn.png", label: "popcorn"),
-            Sticker(url: "https://raw.githubusercontent.com/footy-fc/d33m/main/public/assets/banny_redcard.png", label: "redcard"),
-            Sticker(url: "https://raw.githubusercontent.com/footy-fc/d33m/main/public/assets/banny_stoned.png", label: "stoned"),
-            Sticker(url: "https://raw.githubusercontent.com/footy-fc/d33m/main/public/assets/banny_wow.png", label: "wow"),
+            Sticker(url: "https://qstorage.quilibrium.com/storage-castrater/banny-pack/goal.webp", label: "goal"),
+            Sticker(url: "https://qstorage.quilibrium.com/storage-castrater/banny-pack/lfg.webp", label: "lfg"),
+            Sticker(url: "https://qstorage.quilibrium.com/storage-castrater/banny-pack/popcorn.webp", label: "popcorn"),
+            Sticker(url: "https://qstorage.quilibrium.com/storage-castrater/banny-pack/redcard.webp", label: "redcard"),
+            Sticker(url: "https://qstorage.quilibrium.com/storage-castrater/banny-pack/stoned.webp", label: "stoned"),
+            Sticker(url: "https://qstorage.quilibrium.com/storage-castrater/banny-pack/wow.webp", label: "wow"),
         ]),
     ]
 
@@ -139,6 +139,77 @@ final class StickerStore: ObservableObject {
             guard !seen.contains(urlString) else { continue }
             seen.insert(urlString)
             out.append(urlString)
+        }
+        return out
+    }
+
+    // MARK: - emoji:// URIs (room experiment, 2026-11-23)
+
+    /// The emoji:// URI for a sticker: `emoji://<pack>/<name>`, e.g.
+    /// `emoji://banny/goal`. It is an identifier, not a location: it
+    /// names the pack and the sticker inside it, and the app resolves
+    /// it through its sticker catalog to the image URL. It is short
+    /// (17 bytes here, against ~70 for the https URL), it survives
+    /// the files moving to a new host (only the catalog entry
+    /// changes), and its two parts are exactly the shortcode's two
+    /// parts, so the text and the embed match trivially. It goes in
+    /// Embed field 1 as a plain string; the FIP's rule 11 only
+    /// requires 1–256 bytes of UTF-8, with no scheme restriction.
+    static func emojiURI(packID: String, stickerID: String) -> String {
+        "emoji://\(packID.lowercased())/\(stickerID.lowercased())"
+    }
+
+    /// True when a string is an emoji:// URI (scheme `emoji`, not
+    /// https). Such a string is never a link to open — it is an
+    /// identifier to resolve, or to fall back from.
+    static func isEmojiURI(_ string: String) -> Bool {
+        string.lowercased().hasPrefix("emoji://")
+    }
+
+    /// Resolve an emoji:// URI to its image URL through the sticker
+    /// catalog, or nil when the pack or the sticker is unknown to
+    /// this app. A nil means the reader does not have that pack, so
+    /// the shortcode in the text stays literal text instead of
+    /// rendering as an image — the fallback is the shortcode, never
+    /// a broken image or a link card.
+    func resolveEmojiURI(_ uri: String) -> URL? {
+        guard Self.isEmojiURI(uri),
+              let url = URL(string: uri),
+              url.scheme?.lowercased() == "emoji",
+              let packID = url.host?.lowercased(),
+              !packID.isEmpty else { return nil }
+        // The name is the path after the leading slash, without any
+        // trailing slash or query. `emoji://banny/goal` has path
+        // "/goal"; `emoji://banny/goal.webp` would not match a
+        // sticker id, so the extension is stripped if present.
+        var name = url.path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        if let dot = name.lastIndex(of: ".") {
+            name = String(name[..<dot])
+        }
+        guard !name.isEmpty, !name.contains("/") else { return nil }
+        return stickerURL(packID: packID, stickerID: name)
+    }
+
+    /// The emoji:// URIs for the inline emoji shortcodes in a piece
+    /// of text, in order, deduplicated — the parallel of
+    /// stickerURLs(forShortcodesIn:), but as identifiers instead of
+    /// image URLs. The room sends these as the embeds: the cast
+    /// carries the short identifier on-chain, and the reader
+    /// resolves it to the image through their catalog.
+    func stickerEmojiURIs(forShortcodesIn text: String) -> [String] {
+        guard let regex = try? NSRegularExpression(pattern: #":([a-z0-9_][a-z0-9_-]{0,31}):([a-z0-9_][a-z0-9_-]{0,31}):"#) else { return [] }
+        let nsText = text as NSString
+        let matches = regex.matches(in: text, range: NSRange(location: 0, length: nsText.length))
+        var seen: Set<String> = []
+        var out: [String] = []
+        for match in matches {
+            let packID = nsText.substring(with: match.range(at: 1)).lowercased()
+            let emojiID = nsText.substring(with: match.range(at: 2)).lowercased()
+            guard stickerURL(packID: packID, stickerID: emojiID) != nil else { continue }
+            let uri = Self.emojiURI(packID: packID, stickerID: emojiID)
+            guard !seen.contains(uri) else { continue }
+            seen.insert(uri)
+            out.append(uri)
         }
         return out
     }

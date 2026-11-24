@@ -421,6 +421,119 @@ final class StickerStore: ObservableObject {
         }
         try? store.save(packs)
     }
+
+    /// Remove an installed pack. A built-in pack that was never
+    /// installed is unaffected (it still shows from the bundle);
+    /// this drops the user's installed copy, including an imported
+    /// pack that shadows a built-in one.
+    func removePack(id: String) {
+        packs.removeAll { $0.id.lowercased() == id.lowercased() }
+        try? store.save(packs)
+    }
+
+    /// Import a sticker pack from a hosted manifest URL (the
+    /// farcaster-sticker-pack format). The manifest is fetched once,
+    /// validated, and SAVED locally — the app then uses the saved
+    /// copy, never the live URL. That is the answer to both failure
+    /// modes of a third-party URL: if the URL goes down, the saved
+    /// copy keeps working; if the creator changes the manifest, the
+    /// user's packs do not change, because the saved copy is pinned
+    /// at import and only an explicit refresh replaces it. A
+    /// refresh that fails (network, bad JSON, wrong format) keeps
+    /// the saved copy untouched. When a pack with the same id is
+    /// already installed, the import refreshes it in place, keeping
+    /// each sticker's sent counts (matched by URL). The cast's
+    /// meaning is pinned a second way too: a sent cast carries the
+    /// image URL in its embed, so even if a pack is refreshed to a
+    /// new URL for a sticker, an old cast still shows the old
+    /// picture — at worst its shortcode stops rendering inline and
+    /// stays as text.
+    @MainActor
+    func importPack(from urlString: String) async throws -> StickerPack {
+        let raw = urlString.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let url = URL(string: raw), url.scheme == "https" else {
+            throw PackImportError.badURL
+        }
+        let data: Data
+        do {
+            let (fetched, _) = try await URLSession.shared.data(from: url)
+            data = fetched
+        } catch {
+            throw PackImportError.fetchFailed
+        }
+        guard data.count <= 128 * 1024 else { throw PackImportError.tooLarge }
+        // The manifest's format and version are not StickerPack
+        // fields, so read them from a header first.
+        struct Header: Decodable { let format: String; let version: Int }
+        let header: Header
+        do {
+            header = try JSONDecoder().decode(Header.self, from: data)
+        } catch {
+            throw PackImportError.notAManifest
+        }
+        guard header.format == "farcaster-sticker-pack" else { throw PackImportError.notAManifest }
+        guard header.version == 1 else { throw PackImportError.wrongVersion(header.version) }
+        let pack: StickerPack
+        do {
+            pack = try JSONDecoder().decode(StickerPack.self, from: data)
+        } catch {
+            throw PackImportError.notAManifest
+        }
+        guard pack.id.range(of: #"^[a-z0-9_][a-z0-9_-]{0,31}$"#, options: .regularExpression) != nil else {
+            throw PackImportError.badPackID
+        }
+        guard !pack.stickers.isEmpty else { throw PackImportError.emptyPack }
+        guard pack.stickers.count <= 100 else { throw PackImportError.tooManyStickers }
+        var seenIDs = Set<String>()
+        for sticker in pack.stickers {
+            let id = sticker.label.lowercased()
+            guard seenIDs.insert(id).inserted else { throw PackImportError.badSticker(id) }
+            guard let stickerURL = URL(string: sticker.url), stickerURL.scheme == "https" else {
+                throw PackImportError.badSticker(id)
+            }
+        }
+        if let index = packs.firstIndex(where: { $0.id.lowercased() == pack.id.lowercased() }) {
+            var refreshed = pack
+            for i in refreshed.stickers.indices {
+                if let old = packs[index].stickers.first(where: { $0.url == refreshed.stickers[i].url }) {
+                    refreshed.stickers[i].useCount = old.useCount
+                    refreshed.stickers[i].lastUsedAt = old.lastUsedAt
+                }
+            }
+            packs[index] = refreshed
+        } else {
+            packs.append(pack)
+        }
+        try? store.save(packs)
+        return pack
+    }
+}
+
+/// Import failures, in words the user can read.
+enum PackImportError: LocalizedError {
+    case badURL
+    case fetchFailed
+    case tooLarge
+    case notAManifest
+    case wrongVersion(Int)
+    case badPackID
+    case emptyPack
+    case tooManyStickers
+    case badSticker(String)
+
+    var errorDescription: String? {
+        switch self {
+        case .badURL: return "That needs to be a full https:// link to a pack file."
+        case .fetchFailed: return "Couldn't fetch that link. Check the address and try again."
+        case .tooLarge: return "That pack file is too big (over 128 KiB)."
+        case .notAManifest: return "That link isn't a sticker pack. It needs to be a farcaster-sticker-pack manifest."
+        case .wrongVersion(let v): return "That pack uses manifest version \(v), and this app reads version 1."
+        case .badPackID: return "That pack's id isn't a valid shortcode id."
+        case .emptyPack: return "That pack has no stickers in it."
+        case .tooManyStickers: return "That pack has more than 100 stickers."
+        case .badSticker(let id): return "Sticker '\(id)' in that pack has a bad image link."
+        }
+    }
 }
 
 /// A sticker as it is, with no frame (Quilcast's ui.tsx Sticker):

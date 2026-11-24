@@ -326,7 +326,13 @@ struct RoomView: View {
                             }
                             .accessibilityLabel(sticker.label)
                             .onLongPressGesture {
-                                stickerToRemove = sticker
+                                // Built-in stickers (Banny) are part
+                                // of the app and can never be removed;
+                                // only the user's own and imported
+                                // stickers offer removal.
+                                if !StickerStore.isBuiltInSticker(url: sticker.url) {
+                                    stickerToRemove = sticker
+                                }
                             }
                         }
                         // Your own emoji: paste a direct image link

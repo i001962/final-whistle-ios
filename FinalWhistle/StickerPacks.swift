@@ -398,8 +398,26 @@ final class StickerStore: ObservableObject {
         }
     }
 
-    /// Remove a sticker from every pack that has it.
+    /// The ids of the built-in packs (Banny). A built-in pack is
+    /// part of the app, not something the user manages: its stickers
+    /// can never be removed, and the pack itself can never be
+    /// deleted. The user's installed copy of a built-in pack (added
+    /// by ensurePack when a sticker is first sent) shadows the
+    /// bundle copy, so removing a sticker from it would hide the
+    /// sticker even though the pack is still there.
+    static var builtInPackIDs: Set<String> {
+        Set(builtInPacks.map { $0.id.lowercased() })
+    }
+
+    /// True when a sticker URL belongs to a built-in pack.
+    static func isBuiltInSticker(url: String) -> Bool {
+        builtInPacks.flatMap(\.stickers).contains(where: { $0.url == url })
+    }
+
+    /// Remove a sticker from every pack that has it. Built-in
+    /// stickers are never removed (see builtInPackIDs).
     func removeSticker(url: String) {
+        guard !Self.isBuiltInSticker(url: url) else { return }
         for packIndex in packs.indices {
             packs[packIndex].stickers.removeAll { $0.url == url }
         }
@@ -431,11 +449,12 @@ final class StickerStore: ObservableObject {
         try? store.save(packs)
     }
 
-    /// Remove an installed pack. A built-in pack that was never
-    /// installed is unaffected (it still shows from the bundle);
-    /// this drops the user's installed copy, including an imported
-    /// pack that shadows a built-in one.
+    /// Remove an installed pack. A built-in pack is part of the app
+    /// and can never be deleted. (Removing the user's installed copy
+    /// of one would be a no-op anyway: the bundle copy would still
+    /// show, so the pack would appear to survive the delete.)
     func removePack(id: String) {
+        guard !Self.builtInPackIDs.contains(id.lowercased()) else { return }
         packs.removeAll { $0.id.lowercased() == id.lowercased() }
         try? store.save(packs)
     }
@@ -838,10 +857,18 @@ struct AddEmojiView: View {
 /// "Manage stickers" row. The order here is the order in the picker.
 struct ManageStickersView: View {
     @ObservedObject private var store = StickerStore.shared
+    @Environment(\.dismiss) private var dismiss
 
     @State private var packURL = ""
     @State private var packMessage: String?
     @State private var importing = false
+
+    /// The packs the user can remove: imported packs and My
+    /// stickers. Built-in packs are part of the app and are never
+    /// listed here, so there is no way to delete one.
+    private var removablePacks: [StickerPack] {
+        store.packs.filter { !StickerStore.builtInPackIDs.contains($0.id.lowercased()) }
+    }
 
     /// "My stickers", looked up by id: an imported pack can land
     /// at index 0 before "My stickers" exists, and packs[0] would
@@ -853,11 +880,11 @@ struct ManageStickersView: View {
     var body: some View {
         List {
             Section {
-                if store.packs.isEmpty {
+                if removablePacks.isEmpty {
                     Text("No packs yet. Import one below, or add a single emoji from the sticker tray.")
                         .foregroundStyle(Color.fwMuted)
                 } else {
-                    ForEach(store.packs, id: \.id) { pack in
+                    ForEach(removablePacks, id: \.id) { pack in
                         HStack(spacing: 12) {
                             VStack(alignment: .leading, spacing: 2) {
                                 Text(pack.title)
@@ -868,11 +895,7 @@ struct ManageStickersView: View {
                                     .foregroundStyle(Color.fwMuted)
                             }
                             Spacer()
-                            if StickerStore.builtInPacks.contains(where: { $0.id.lowercased() == pack.id.lowercased() }) {
-                                Text("Built-in")
-                                    .font(.caption)
-                                    .foregroundStyle(Color.fwMuted)
-                            } else if pack.id.lowercased() == "mine" {
+                            if pack.id.lowercased() == "mine" {
                                 Text("Yours")
                                     .font(.caption)
                                     .foregroundStyle(Color.fwMuted)
@@ -880,7 +903,7 @@ struct ManageStickersView: View {
                         }
                     }
                     .onDelete { offsets in
-                        let ids = offsets.map { store.packs[$0].id }
+                        let ids = offsets.map { removablePacks[$0].id }
                         for id in ids {
                             store.removePack(id: id)
                         }
@@ -889,7 +912,7 @@ struct ManageStickersView: View {
             } header: {
                 Text("Packs")
             } footer: {
-                Text("Swipe left to remove a pack. Removing a pack does not change casts you already sent — those carry the picture in the cast itself. A built-in pack stays available from the app even after you remove your copy.")
+                Text("Swipe left to remove a pack. Removing a pack does not change casts you already sent — those carry the picture in the cast itself. Built-in packs are not listed here; they are part of the app and always available.")
             }
 
             Section {
@@ -978,7 +1001,14 @@ struct ManageStickersView: View {
         .navigationTitle("Manage stickers")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
-            EditButton()
+            ToolbarItem(placement: .cancellationAction) {
+                Button("Done") { dismiss() }
+            }
+            if !removablePacks.isEmpty || !myStickers.isEmpty {
+                ToolbarItem(placement: .primaryAction) {
+                    EditButton()
+                }
+            }
         }
     }
 

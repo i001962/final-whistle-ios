@@ -283,7 +283,13 @@ struct ComposeView: View {
                                 }
                                 .accessibilityLabel(sticker.label)
                                 .onLongPressGesture {
-                                    stickerToRemove = sticker
+                                    // Built-in stickers (Banny) are part
+                                    // of the app and can never be removed;
+                                    // only the user's own and imported
+                                    // stickers offer removal.
+                                    if !StickerStore.isBuiltInSticker(url: sticker.url) {
+                                        stickerToRemove = sticker
+                                    }
                                 }
                             }
                             // Your own emoji: paste a direct image link
@@ -442,8 +448,8 @@ struct ComposeView: View {
                     Button {
                         showStickerTray.toggle()
                     } label: {
-                        Label("Sticker", systemImage: "face.smiling")
-                            .font(.footnote)
+                        Image(systemName: "face.smiling")
+                            .font(.title2)
                             .foregroundStyle(showStickerTray ? Color.fwAccent : Color.fwAccentSoft)
                     }
                     .accessibilityLabel("Add an emoji")

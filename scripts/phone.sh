@@ -125,9 +125,23 @@ fi
 # when it is locked. There is no signer file to download: the
 # certificate + private key are already in the keychain, which is
 # why the GUI signs fine.
-security unlock-keychain ~/Library/Keychains/login.keychain-db || {
-  echo "Could not unlock the login keychain. If the build fails with 'No Account for Team', unlock it in Keychain Access and re-run." >&2
-}
+# If KEYCHAIN_PASSWORD is set in the environment, unlock the
+# keychain non-interactively; otherwise prompt in the terminal.
+# Do not put your Mac login password in a shell profile or any
+# file that is backed up or shared: it would sit there in
+# plaintext. To use it, set it only for this terminal session,
+# e.g. `export KEYCHAIN_PASSWORD=...` before running this script,
+# or unlock the keychain once in Keychain Access and let it stay
+# unlocked for the session.
+if [ -n "${KEYCHAIN_PASSWORD:-}" ]; then
+  security unlock-keychain -p "$KEYCHAIN_PASSWORD" ~/Library/Keychains/login.keychain-db || {
+    echo "Could not unlock the login keychain with KEYCHAIN_PASSWORD. If the build fails with 'No Account for Team', unlock it in Keychain Access and re-run." >&2
+  }
+else
+  security unlock-keychain ~/Library/Keychains/login.keychain-db || {
+    echo "Could not unlock the login keychain. If the build fails with 'No Account for Team', unlock it in Keychain Access and re-run." >&2
+  }
+fi
 # The team is an xcodebuild override, so it survives the pull above
 # even though the pbxproj was discarded and re-pulled. The two
 # invocations are written out (instead of an args array) because the

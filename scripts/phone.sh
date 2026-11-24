@@ -105,6 +105,18 @@ d = [x["hardwareProperties"] for x in json.load(open(sys.argv[1]))["result"]["de
      and x["connectionProperties"].get("tunnelState") != "unavailable"]
 print(d[0]["udid"] if d else "")' "$OUT/devices.json")
 [ -n "$UDID" ] || { echo "No iPhone connected. Plug it in, unlock it and trust this Mac." >&2; exit 1; }
+# Unlock the login keychain before building. The Apple ID account
+# and the signing identity live there; the Xcode GUI unlocks it on
+# demand, but a CLI xcodebuild cannot prompt, so when it is locked
+# the build fails with "No Account for Team" even though the account
+# is fine in Xcode. This is a no-op when the keychain is already
+# unlocked, and prompts for the login password in this terminal
+# when it is locked. There is no signer file to download: the
+# certificate + private key are already in the keychain, which is
+# why the GUI signs fine.
+security unlock-keychain ~/Library/Keychains/login.keychain-db || {
+  echo "Could not unlock the login keychain. If the build fails with 'No Account for Team', unlock it in Keychain Access and re-run." >&2
+}
 # The team is an xcodebuild override, so it survives the pull above
 # even though the pbxproj was discarded and re-pulled. The two
 # invocations are written out (instead of an args array) because the

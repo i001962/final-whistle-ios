@@ -193,22 +193,6 @@ final class StickerStore: ObservableObject {
         return packs + Self.builtInPacks.filter { !userIDs.contains($0.id) }
     }
 
-    /// The stickers the tray shows: every sticker in every known
-    /// pack, each URL once. A URL can sit in two packs (a sticker
-    /// added by hand to My stickers that is also in a built-in
-    /// pack, or the same image in two imported packs); without the
-    /// dedupe the tray's ForEach gets duplicate ids and the sticker
-    /// can fail to render, so a re-added sticker looks missing even
-    /// though it is on the device.
-    var trayStickers: [Sticker] {
-        var seen = Set<String>()
-        var out: [Sticker] = []
-        for sticker in allKnownPacks.flatMap(\.stickers) {
-            if seen.insert(sticker.url).inserted { out.append(sticker) }
-        }
-        return out
-    }
-
     /// Resolve an inline shortcode `:packid:emojiconid:` to its image
     /// URL, or nil when the pack or the sticker is unknown. The label
     /// is the sticker id inside its pack.
@@ -1007,46 +991,88 @@ struct StickerTrayView: View {
     @ObservedObject private var store = StickerStore.shared
     @State private var showingManageStickers = false
     @State private var stickerToRemove: Sticker?
+    @State private var searchText = ""
 
     /// Called with the tapped sticker's URL. The caller inserts
     /// its shortcode into the draft.
     var onPick: (String) -> Void
 
-    var body: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 12) {
-                ForEach(store.trayStickers, id: \.url) { sticker in
-                    Button {
-                        onPick(sticker.url)
-                    } label: {
-                        AsyncImage(url: StickerStore.resolvedImageURL(for: sticker.url)) { phase in
-                            switch phase {
-                            case .success(let image):
-                                image.resizable().scaledToFit()
-                            case .failure:
-                                Image(systemName: "photo")
-                                    .foregroundStyle(Color.fwMuted)
-                            case .empty:
-                                ProgressView().tint(Color.fwLime)
-                            @unknown default:
-                                EmptyView()
-                            }
-                        }
-                        .frame(width: 44, height: 44)
-                    }
-                    .accessibilityLabel(sticker.label)
-                    .onLongPressGesture {
-                        // Built-in stickers (Banny) are part of the
-                        // app and can never be removed; only the
-                        // user's own and imported stickers offer
-                        // removal.
-                        if !StickerStore.isBuiltInSticker(url: sticker.url) {
-                            stickerToRemove = sticker
-                        }
-                    }
+    /// Packs with their stickers, grouped by pack and filtered by
+    /// the search text. A URL is shown once, in the first pack
+    /// that holds it, so a sticker in two packs does not appear
+    /// twice. A sticker matches the search when its name (label),
+    /// its URL, or its pack's name contains the query; a pack
+    /// whose name matches shows all its stickers.
+    private var filteredPacks: [(pack: StickerPack, stickers: [Sticker])] {
+        let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        var seen = Set<String>()
+        var out: [(pack: StickerPack, stickers: [Sticker])] = []
+        for pack in store.allKnownPacks {
+            let packMatches = query.isEmpty
+                || pack.id.lowercased().contains(query)
+                || pack.title.lowercased().contains(query)
+            var stickers: [Sticker] = []
+            for sticker in pack.stickers {
+                guard seen.insert(sticker.url).inserted else { continue }
+                if query.isEmpty || packMatches
+                    || sticker.label.lowercased().contains(query)
+                    || sticker.url.lowercased().contains(query) {
+                    stickers.append(sticker)
                 }
-                // Settings: the one place to add a sticker, import a
-                // pack, or remove and reorder.
+            }
+            if !stickers.isEmpty { out.append((pack: pack, stickers: stickers)) }
+        }
+        return out
+    }
+
+    private func stickerButton(_ sticker: Sticker) -> some View {
+        Button {
+            onPick(sticker.url)
+        } label: {
+            AsyncImage(url: StickerStore.resolvedImageURL(for: sticker.url)) { phase in
+                switch phase {
+                case .success(let image):
+                    image.resizable().scaledToFit()
+                case .failure:
+                    Image(systemName: "photo")
+                        .foregroundStyle(Color.fwMuted)
+                case .empty:
+                    ProgressView().tint(Color.fwLime)
+                @unknown default:
+                    EmptyView()
+                }
+            }
+            .frame(width: 44, height: 44)
+        }
+        .accessibilityLabel(sticker.label)
+        .onLongPressGesture {
+            // Built-in stickers (Banny) are part of the
+            // app and can never be removed; only the
+            // user's own and imported stickers offer
+            // removal.
+            if !StickerStore.isBuiltInSticker(url: sticker.url) {
+                stickerToRemove = sticker
+            }
+        }
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            // Header: search and settings stay put at the top, so
+            // the settings button is always visible no matter how
+            // many stickers there are. The old single-row bar hid
+            // it at the end of a long horizontal scroll.
+            HStack(spacing: 10) {
+                HStack(spacing: 6) {
+                    Image(systemName: "magnifyingglass")
+                        .foregroundStyle(Color.fwMuted)
+                    TextField("Search stickers", text: $searchText)
+                        .autocorrectionDisabled()
+                        .textInputAutocapitalization(.never)
+                }
+                .padding(.horizontal, 10)
+                .padding(.vertical, 8)
+                .background(Color.fwPanel, in: RoundedRectangle(cornerRadius: 10))
                 Button {
                     showingManageStickers = true
                 } label: {
@@ -1060,7 +1086,37 @@ struct StickerTrayView: View {
                 .accessibilityLabel("Manage stickers")
             }
             .padding(.horizontal, 16)
-            .padding(.vertical, 8)
+            .padding(.top, 10)
+            .padding(.bottom, 6)
+            // Multi-line, vertically scrollable: stickers are
+            // grouped by pack and wrap into a grid, so a large
+            // pack reads top to bottom instead of one long row.
+            ScrollView(.vertical, showsIndicators: true) {
+                LazyVStack(alignment: .leading, spacing: 16) {
+                    ForEach(filteredPacks, id: \.pack.id) { entry in
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text(entry.pack.title)
+                                .font(.caption)
+                                .fontWeight(.semibold)
+                                .foregroundStyle(Color.fwMuted)
+                            LazyVGrid(columns: [GridItem(.adaptive(minimum: 44, maximum: 44), spacing: 12)], spacing: 12) {
+                                ForEach(entry.stickers, id: \.url) { sticker in
+                                    stickerButton(sticker)
+                                }
+                            }
+                        }
+                    }
+                    if filteredPacks.isEmpty {
+                        Text("No stickers match \"\(searchText)\".")
+                            .font(.subheadline)
+                            .foregroundStyle(Color.fwMuted)
+                            .padding(.top, 8)
+                    }
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 8)
+            }
+            .frame(maxHeight: 260)
         }
         .background(Color.fwPanelSoft)
         .sheet(isPresented: $showingManageStickers) {

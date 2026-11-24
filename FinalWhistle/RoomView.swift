@@ -79,6 +79,13 @@ struct RoomView: View {
     let room: ChatRoom
 
     @EnvironmentObject private var identity: IdentityStore
+    /// The sticker store, observed so the tray re-renders whenever
+    /// a pack or sticker changes. Without this the tray reads
+    /// StickerStore.shared once and stays stale: after a sticker
+    /// or pack is removed (long-press in the tray, or the Manage
+    /// screen) the deleted emoji keeps showing until something
+    /// else forces a re-render.
+    @ObservedObject private var stickerStore = StickerStore.shared
     @State private var messages: [Cast] = []
     @State private var rootCast: Cast?
     @State private var loading = false
@@ -305,7 +312,7 @@ struct RoomView: View {
                 // to the post being written.
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 12) {
-                        ForEach(StickerStore.shared.allKnownPacks.flatMap(\.stickers), id: \.url) { sticker in
+                        ForEach(stickerStore.allKnownPacks.flatMap(\.stickers), id: \.url) { sticker in
                             Button {
                                 addStickerToDraft(url: sticker.url)
                             } label: {

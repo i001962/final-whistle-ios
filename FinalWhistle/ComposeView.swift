@@ -16,6 +16,13 @@ import SwiftUI
 /// preview above the editor, never a panel the editor hides behind.
 struct ComposeView: View {
     @EnvironmentObject private var identity: IdentityStore
+    /// The sticker store, observed so the tray re-renders whenever
+    /// a pack or sticker changes. Without this the tray reads
+    /// StickerStore.shared once and stays stale: after a sticker
+    /// or pack is removed (long-press in the tray, or the Manage
+    /// screen) the deleted emoji keeps showing until something
+    /// else forces a re-render.
+    @ObservedObject private var stickerStore = StickerStore.shared
     @Environment(\.dismiss) private var dismiss
     let parent: Cast?
     let quoted: Cast?
@@ -262,7 +269,7 @@ struct ComposeView: View {
                     // image joins the embeds below.
                     ScrollView(.horizontal, showsIndicators: false) {
                         HStack(spacing: 12) {
-                            ForEach(StickerStore.shared.allKnownPacks.flatMap(\.stickers), id: \.url) { sticker in
+                            ForEach(stickerStore.allKnownPacks.flatMap(\.stickers), id: \.url) { sticker in
                                 Button {
                                     attachSticker(url: sticker.url)
                                 } label: {

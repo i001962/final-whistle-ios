@@ -38,6 +38,7 @@
 		40D593F246D49BEC84DD868B /* Secrets.swift in Sources */ = {isa = PBXBuildFile; fileRef = 650FF319459D5FC1BA39E24D /* Secrets.swift */; };
 		3784313EF45848B8A71BB454 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = C53647A32165423B846E07B6 /* Assets.xcassets */; };
 		514C25FA818144C09F4EB2E4 /* banny-pack.json in Resources */ = {isa = PBXBuildFile; fileRef = CC57C2E955A44F61A0BDB648 /* banny-pack.json */; };
+		26254D6933B445C696A7604E /* final-whistle-epl.json in Resources */ = {isa = PBXBuildFile; fileRef = 8FEC6041D410441ABED3637C /* final-whistle-epl.json */; };
 		F5AF2A5DD234884A83242B18 /* FinalWhistleTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8B28F54A9F578645FF3E1E30 /* FinalWhistleTests.swift */; };
 		CF3614F4CC43DCB69493CC11 /* FinalWhistleUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F3024E144FB31DC0732F9A9E /* FinalWhistleUITests.swift */; };
 		BB1667EC307679308EDE2C07 /* GRPCCore in Frameworks */ = {isa = PBXBuildFile; productRef = 37D7DFF669923971221B0DD2 /* GRPCCore */; };
@@ -88,6 +89,7 @@
 		650FF319459D5FC1BA39E24D /* Secrets.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Secrets.swift; sourceTree = "<group>"; };
 		C53647A32165423B846E07B6 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		CC57C2E955A44F61A0BDB648 /* banny-pack.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = banny-pack.json; sourceTree = "<group>"; };
+		8FEC6041D410441ABED3637C /* final-whistle-epl.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = final-whistle-epl.json; sourceTree = "<group>"; };
 		8B28F54A9F578645FF3E1E30 /* FinalWhistleTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FinalWhistleTests.swift; sourceTree = "<group>"; };
 		F3024E144FB31DC0732F9A9E /* FinalWhistleUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FinalWhistleUITests.swift; sourceTree = "<group>"; };
 		6B85D2C92072C864A5322FB1 /* FinalWhistle.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = FinalWhistle.app; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -125,7 +127,7 @@
 		};
 		1C8EA5A4CD37765C389BF11E /* FinalWhistle */ = {
 			isa = PBXGroup;
-			children = (1C1CE231FF8E325A09618A75 /* Blake3.swift */, EF28B97AC89BF1914B52B0E3 /* ComposeView.swift */, 65F492A32EE0EB220DDBF39E /* ContentView.swift */, CAFA5C2645587471251D9F3F /* CustodyKeys.swift */, 47162B040FA24A17BA77D2A9 /* Ethereum.swift */, 54AD17F646B8C15EB9264C60 /* FarcasterMessages.swift */, BEA8A7A542A68FC21620666D /* FeedService.swift */, B9C333DEA4F454680CE4BE9E /* FeedView.swift */, 73E037A33FD9C4859FB00317 /* FinalWhistleApp.swift */, C4B000940C9FB82A36E429EF /* HypersnapClient.swift */, 2DFDC21DD9A49768D9540995 /* IdentityStore.swift */, C3A2CC0E89605BA702525914 /* KeychainStore.swift */, EFA386614BEDB5F45A9674AF /* LocalStore.swift */, AD8416EB3F781ACD444569C2 /* Models.swift */, 4B2CB91CFE80895A6691A22D /* OnboardingView.swift */, B6EFCDCBB7FF4945D4CF4C35 /* Protobuf.swift */, 0D2BB316FD4928CF5160021E /* Theme.swift */, 8BE27E6510147F50BC2841A2 /* ThreadView.swift */, 098636CC44BFC4FC89B46E35 /* CastMedia.swift */, E7121775B0B0E11C282FDDE0 /* CastText.swift */, 1A937426506B5A0BAF1FCF2D /* UserProfileView.swift */, 243E7111A20F4885BE77CF95 /* VideosView.swift */, A6325BC636824035A0E285F5 /* RoomView.swift */, E678D5508B645538419FA75A /* ProfilePhotoService.swift */, 650FF319459D5FC1BA39E24D /* Secrets.swift */, E3A9ADD88EAD42509CBCA5C2 /* StickerPacks.swift */, E56BE26B8BA44654ADD7D94C /* CachedImage.swift */, 259C6DF1DDA421AF4AA2706D /* WYSIWYGEditor.swift */, B52FCE0F4A854A1F982B0FA1 /* SeedPhrase.swift */, C53647A32165423B846E07B6 /* Assets.xcassets */, CC57C2E955A44F61A0BDB648 /* banny-pack.json */, );
+			children = (1C1CE231FF8E325A09618A75 /* Blake3.swift */, EF28B97AC89BF1914B52B0E3 /* ComposeView.swift */, 65F492A32EE0EB220DDBF39E /* ContentView.swift */, CAFA5C2645587471251D9F3F /* CustodyKeys.swift */, 47162B040FA24A17BA77D2A9 /* Ethereum.swift */, 54AD17F646B8C15EB9264C60 /* FarcasterMessages.swift */, BEA8A7A542A68FC21620666D /* FeedService.swift */, B9C333DEA4F454680CE4BE9E /* FeedView.swift */, 73E037A33FD9C4859FB00317 /* FinalWhistleApp.swift */, C4B000940C9FB82A36E429EF /* HypersnapClient.swift */, 2DFDC21DD9A49768D9540995 /* IdentityStore.swift */, C3A2CC0E89605BA702525914 /* KeychainStore.swift */, EFA386614BEDB5F45A9674AF /* LocalStore.swift */, AD8416EB3F781ACD444569C2 /* Models.swift */, 4B2CB91CFE80895A6691A22D /* OnboardingView.swift */, B6EFCDCBB7FF4945D4CF4C35 /* Protobuf.swift */, 0D2BB316FD4928CF5160021E /* Theme.swift */, 8BE27E6510147F50BC2841A2 /* ThreadView.swift */, 098636CC44BFC4FC89B46E35 /* CastMedia.swift */, E7121775B0B0E11C282FDDE0 /* CastText.swift */, 1A937426506B5A0BAF1FCF2D /* UserProfileView.swift */, 243E7111A20F4885BE77CF95 /* VideosView.swift */, A6325BC636824035A0E285F5 /* RoomView.swift */, E678D5508B645538419FA75A /* ProfilePhotoService.swift */, 650FF319459D5FC1BA39E24D /* Secrets.swift */, E3A9ADD88EAD42509CBCA5C2 /* StickerPacks.swift */, E56BE26B8BA44654ADD7D94C /* CachedImage.swift */, 259C6DF1DDA421AF4AA2706D /* WYSIWYGEditor.swift */, B52FCE0F4A854A1F982B0FA1 /* SeedPhrase.swift */, C53647A32165423B846E07B6 /* Assets.xcassets */, CC57C2E955A44F61A0BDB648 /* banny-pack.json */, 8FEC6041D410441ABED3637C /* final-whistle-epl.json */, );
 			name = FinalWhistle;
 			path = FinalWhistle;
 			sourceTree = "<group>";
@@ -256,6 +258,7 @@
 			files = (
 				3784313EF45848B8A71BB454 /* Assets.xcassets in Resources */,
 				514C25FA818144C09F4EB2E4 /* banny-pack.json in Resources */,
+				26254D6933B445C696A7604E /* final-whistle-epl.json in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

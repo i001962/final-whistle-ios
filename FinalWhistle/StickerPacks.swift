@@ -165,6 +165,14 @@ final class StickerStore: ObservableObject {
            let pack = try? JSONDecoder().decode(StickerPack.self, from: data) {
             packs.append(pack)
         }
+        // The Premier League pack: one crest per club, 20 clubs.
+        // Same shape as Banny — a bundled manifest the app reads,
+        // so the pack works offline once the images are cached.
+        if let url = Bundle.main.url(forResource: "final-whistle-epl", withExtension: "json"),
+           let data = try? Data(contentsOf: url),
+           let pack = try? JSONDecoder().decode(StickerPack.self, from: data) {
+            packs.append(pack)
+        }
         if packs.isEmpty {
             packs = [
                 StickerPack(id: "banny", title: "Banny", stickers: [

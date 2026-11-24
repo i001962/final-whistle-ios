@@ -1,0 +1,333 @@
+{
+  "format": "farcaster-sticker-pack",
+  "version": 1,
+  "id": "final-whistle-epl",
+  "name": "Premier League",
+  "description": "Every Premier League club crest for Final Whistle",
+  "author": {
+    "name": "Final Whistle",
+    "url": "https://final-whistle.app/"
+  },
+  "stickers": [
+    {
+      "id": "arsenal",
+      "name": "Arsenal",
+      "alt": "Arsenal club crest",
+      "url": "https://thumb.wikimedia.org/wikipedia/en/thumb/5/53/Arsenal_FC.svg/330px-Arsenal_FC.svg.png",
+      "mimeType": "image/png",
+      "width": 330,
+      "height": 388,
+      "sha256": "b11e398c5df7ec8cf6a1c72f6af7cedeafb208324625ac71ac9c1f482bbc0225",
+      "tags": [
+        "epl",
+        "premier-league",
+        "crest",
+        "arsenal"
+      ]
+    },
+    {
+      "id": "aston-villa",
+      "name": "Aston Villa",
+      "alt": "Aston Villa club crest",
+      "url": "https://thumb.wikimedia.org/wikipedia/en/thumb/9/9a/Aston_Villa_FC_new_crest.svg/330px-Aston_Villa_FC_new_crest.svg.png",
+      "mimeType": "image/png",
+      "width": 330,
+      "height": 449,
+      "sha256": "633a783908547d2e6dd8ef6118f5e6293789370c9ee4090c6f9c68458016e06a",
+      "tags": [
+        "epl",
+        "premier-league",
+        "crest",
+        "aston-villa"
+      ]
+    },
+    {
+      "id": "bournemouth",
+      "name": "Bournemouth",
+      "alt": "Bournemouth club crest",
+      "url": "https://thumb.wikimedia.org/wikipedia/en/thumb/e/e5/AFC_Bournemouth_%282013%29.svg/330px-AFC_Bournemouth_%282013%29.svg.png",
+      "mimeType": "image/png",
+      "width": 330,
+      "height": 435,
+      "sha256": "a71cecc4610eb777a59e644f7169fb1ca9fb995472744312e8667f9df8d9a130",
+      "tags": [
+        "epl",
+        "premier-league",
+        "crest",
+        "bournemouth"
+      ]
+    },
+    {
+      "id": "brentford",
+      "name": "Brentford",
+      "alt": "Brentford club crest",
+      "url": "https://thumb.wikimedia.org/wikipedia/en/thumb/2/2a/Brentford_FC_crest.svg/330px-Brentford_FC_crest.svg.png",
+      "mimeType": "image/png",
+      "width": 330,
+      "height": 330,
+      "sha256": "7027df7e09d268a1dabdeeeb08f5e1c89500ba80c82ed46e1f0e5eb66ddb650a",
+      "tags": [
+        "epl",
+        "premier-league",
+        "crest",
+        "brentford"
+      ]
+    },
+    {
+      "id": "brighton",
+      "name": "Brighton & Hove Albion",
+      "alt": "Brighton & Hove Albion club crest",
+      "url": "https://thumb.wikimedia.org/wikipedia/en/thumb/d/d0/Brighton_and_Hove_Albion_FC_crest.svg/330px-Brighton_and_Hove_Albion_FC_crest.svg.png",
+      "mimeType": "image/png",
+      "width": 330,
+      "height": 330,
+      "sha256": "44b985992e9b01090a745b91877ad73a98a71fa0af7a61286f5ee7a7c3d53d8c",
+      "tags": [
+        "epl",
+        "premier-league",
+        "crest",
+        "brighton"
+      ]
+    },
+    {
+      "id": "burnley",
+      "name": "Burnley",
+      "alt": "Burnley club crest",
+      "url": "https://thumb.wikimedia.org/wikipedia/en/thumb/6/6d/Burnley_FC_Logo.svg/330px-Burnley_FC_Logo.svg.png",
+      "mimeType": "image/png",
+      "width": 330,
+      "height": 380,
+      "sha256": "11b1582b45dea92edbc4c2d6b4d595f2c830b54ceb04813c01155b301c083251",
+      "tags": [
+        "epl",
+        "premier-league",
+        "crest",
+        "burnley"
+      ]
+    },
+    {
+      "id": "chelsea",
+      "name": "Chelsea",
+      "alt": "Chelsea club crest",
+      "url": "https://thumb.wikimedia.org/wikipedia/en/thumb/c/cc/Chelsea_FC.svg/330px-Chelsea_FC.svg.png",
+      "mimeType": "image/png",
+      "width": 330,
+      "height": 330,
+      "sha256": "8614cc2752e1748965d074bc073e490ea9656bf13dfa28f75dcd8cf889cb7021",
+      "tags": [
+        "epl",
+        "premier-league",
+        "crest",
+        "chelsea"
+      ]
+    },
+    {
+      "id": "crystal-palace",
+      "name": "Crystal Palace",
+      "alt": "Crystal Palace club crest",
+      "url": "https://thumb.wikimedia.org/wikipedia/en/thumb/a/a2/Crystal_Palace_FC_logo_%282022%29.svg/330px-Crystal_Palace_FC_logo_%282022%29.svg.png",
+      "mimeType": "image/png",
+      "width": 330,
+      "height": 412,
+      "sha256": "1c611ac13a86db1d686efc3ac06a3b3b723f9a827dda80c081ac935e2b008537",
+      "tags": [
+        "epl",
+        "premier-league",
+        "crest",
+        "crystal-palace"
+      ]
+    },
+    {
+      "id": "everton",
+      "name": "Everton",
+      "alt": "Everton club crest",
+      "url": "https://thumb.wikimedia.org/wikipedia/en/thumb/7/7c/Everton_FC_logo.svg/330px-Everton_FC_logo.svg.png",
+      "mimeType": "image/png",
+      "width": 330,
+      "height": 338,
+      "sha256": "606b026a4cdfc24067bd46f6ccf1fe5d9c8c1fee4c3c2a892bb4766e427d308e",
+      "tags": [
+        "epl",
+        "premier-league",
+        "crest",
+        "everton"
+      ]
+    },
+    {
+      "id": "fulham",
+      "name": "Fulham",
+      "alt": "Fulham club crest",
+      "url": "https://thumb.wikimedia.org/wikipedia/en/thumb/e/eb/Fulham_FC_%28shield%29.svg/330px-Fulham_FC_%28shield%29.svg.png",
+      "mimeType": "image/png",
+      "width": 330,
+      "height": 440,
+      "sha256": "eef66d3397f9c0779e2b0fe49f2571af1b69835540dfb351fa1941739700d693",
+      "tags": [
+        "epl",
+        "premier-league",
+        "crest",
+        "fulham"
+      ]
+    },
+    {
+      "id": "leeds",
+      "name": "Leeds United",
+      "alt": "Leeds United club crest",
+      "url": "https://thumb.wikimedia.org/wikipedia/en/thumb/5/54/Leeds_United_F.C._logo.svg/330px-Leeds_United_F.C._logo.svg.png",
+      "mimeType": "image/png",
+      "width": 330,
+      "height": 411,
+      "sha256": "87e3fbd2c3612d95e6b26cba2eea02c383cc95cb7582f2ceb3a8f8299040df50",
+      "tags": [
+        "epl",
+        "premier-league",
+        "crest",
+        "leeds"
+      ]
+    },
+    {
+      "id": "liverpool",
+      "name": "Liverpool",
+      "alt": "Liverpool club crest",
+      "url": "https://thumb.wikimedia.org/wikipedia/en/thumb/0/0c/Liverpool_FC.svg/330px-Liverpool_FC.svg.png",
+      "mimeType": "image/png",
+      "width": 330,
+      "height": 451,
+      "sha256": "2ee954522ce6ea17f66bb705553059aea0cdaf80ad6677f7e99ada641eb317e8",
+      "tags": [
+        "epl",
+        "premier-league",
+        "crest",
+        "liverpool"
+      ]
+    },
+    {
+      "id": "man-city",
+      "name": "Manchester City",
+      "alt": "Manchester City club crest",
+      "url": "https://thumb.wikimedia.org/wikipedia/en/thumb/e/eb/Manchester_City_FC_badge.svg/330px-Manchester_City_FC_badge.svg.png",
+      "mimeType": "image/png",
+      "width": 330,
+      "height": 330,
+      "sha256": "d07d4a4e15a483b2aa0657ece58fc1264b8c3f4fb992f2dbda3d93da4324485a",
+      "tags": [
+        "epl",
+        "premier-league",
+        "crest",
+        "man-city"
+      ]
+    },
+    {
+      "id": "man-utd",
+      "name": "Manchester United",
+      "alt": "Manchester United club crest",
+      "url": "https://thumb.wikimedia.org/wikipedia/en/thumb/7/7a/Manchester_United_FC_crest.svg/330px-Manchester_United_FC_crest.svg.png",
+      "mimeType": "image/png",
+      "width": 330,
+      "height": 335,
+      "sha256": "de1774d0b3a32e16dda87010fb48a6579795ce6c04b5adebdbacdfeca959bc89",
+      "tags": [
+        "epl",
+        "premier-league",
+        "crest",
+        "man-utd"
+      ]
+    },
+    {
+      "id": "newcastle",
+      "name": "Newcastle United",
+      "alt": "Newcastle United club crest",
+      "url": "https://thumb.wikimedia.org/wikipedia/en/thumb/8/87/Newcastle_United_FC_2026_crest.svg/330px-Newcastle_United_FC_2026_crest.svg.png",
+      "mimeType": "image/png",
+      "width": 330,
+      "height": 332,
+      "sha256": "3c434ca43fe62b7da3d00ab21dc4c8991d8132e98d23eb75d671671f253ec088",
+      "tags": [
+        "epl",
+        "premier-league",
+        "crest",
+        "newcastle"
+      ]
+    },
+    {
+      "id": "nottingham-forest",
+      "name": "Nottingham Forest",
+      "alt": "Nottingham Forest club crest",
+      "url": "https://thumb.wikimedia.org/wikipedia/en/thumb/e/e5/Nottingham_Forest_F.C._logo.svg/330px-Nottingham_Forest_F.C._logo.svg.png",
+      "mimeType": "image/png",
+      "width": 330,
+      "height": 703,
+      "sha256": "6f7f965299ba321b54b866e467f664e94d334216c4916329ed5f04b3a02a21be",
+      "tags": [
+        "epl",
+        "premier-league",
+        "crest",
+        "nottingham-forest"
+      ]
+    },
+    {
+      "id": "sunderland",
+      "name": "Sunderland",
+      "alt": "Sunderland club crest",
+      "url": "https://thumb.wikimedia.org/wikipedia/en/thumb/7/77/Logo_Sunderland.svg/330px-Logo_Sunderland.svg.png",
+      "mimeType": "image/png",
+      "width": 330,
+      "height": 275,
+      "sha256": "6789213dd7cd738d0781f861188e62f2f2609af77f72b423f1fd1d297e2887a9",
+      "tags": [
+        "epl",
+        "premier-league",
+        "crest",
+        "sunderland"
+      ]
+    },
+    {
+      "id": "tottenham",
+      "name": "Tottenham Hotspur",
+      "alt": "Tottenham Hotspur club crest",
+      "url": "https://thumb.wikimedia.org/wikipedia/en/thumb/b/b4/Tottenham_Hotspur.svg/330px-Tottenham_Hotspur.svg.png",
+      "mimeType": "image/png",
+      "width": 330,
+      "height": 680,
+      "sha256": "96e379454036cdeca9e08da75043f97adc048632539597ef98ababd2211eba13",
+      "tags": [
+        "epl",
+        "premier-league",
+        "crest",
+        "tottenham"
+      ]
+    },
+    {
+      "id": "west-ham",
+      "name": "West Ham United",
+      "alt": "West Ham United club crest",
+      "url": "https://thumb.wikimedia.org/wikipedia/en/thumb/c/c2/West_Ham_United_FC_logo.svg/330px-West_Ham_United_FC_logo.svg.png",
+      "mimeType": "image/png",
+      "width": 330,
+      "height": 370,
+      "sha256": "b752364970bdf6d52f4c946cf8710eaab036d20d1bfbae2121a1cd8e5ea286ca",
+      "tags": [
+        "epl",
+        "premier-league",
+        "crest",
+        "west-ham"
+      ]
+    },
+    {
+      "id": "wolves",
+      "name": "Wolverhampton Wanderers",
+      "alt": "Wolverhampton Wanderers club crest",
+      "url": "https://thumb.wikimedia.org/wikipedia/en/thumb/c/c9/Wolverhampton_Wanderers_FC_crest.svg/330px-Wolverhampton_Wanderers_FC_crest.svg.png",
+      "mimeType": "image/png",
+      "width": 330,
+      "height": 287,
+      "sha256": "7d9758be9bb3f269f2fac71cdcdf8253df646dda100dcf492934f19d797df94b",
+      "tags": [
+        "epl",
+        "premier-league",
+        "crest",
+        "wolves"
+      ]
+    }
+  ]
+}

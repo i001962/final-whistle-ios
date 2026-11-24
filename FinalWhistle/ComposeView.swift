@@ -16,13 +16,6 @@ import SwiftUI
 /// preview above the editor, never a panel the editor hides behind.
 struct ComposeView: View {
     @EnvironmentObject private var identity: IdentityStore
-    /// The sticker store, observed so the tray re-renders whenever
-    /// a pack or sticker changes. Without this the tray reads
-    /// StickerStore.shared once and stays stale: after a sticker
-    /// or pack is removed (long-press in the tray, or the Manage
-    /// screen) the deleted emoji keeps showing until something
-    /// else forces a re-render.
-    @ObservedObject private var stickerStore = StickerStore.shared
     @Environment(\.dismiss) private var dismiss
     let parent: Cast?
     let quoted: Cast?
@@ -62,12 +55,6 @@ struct ComposeView: View {
     /// The emoji tray above the editor. Same tray as the room: tap
     /// an emoji to add it to the post being written.
     @State private var showStickerTray = false
-    /// The add-your-own-emoji sheet, opened from the tray's plus
-    /// button. Paste a direct image link and a name, and it joins
-    /// the tray as :mine:<name>:.
-    @State private var showingAddEmoji = false
-    @State private var showingManageStickers = false
-    @State private var stickerToRemove: Sticker?
 
     /// The @mention being typed, if any, and the users that match
     /// it. When the text ends with @ + word characters, the composer
@@ -263,73 +250,7 @@ struct ComposeView: View {
                 }
 
                 if showStickerTray {
-                    // The emojis, above the text box: the same tray as
-                    // the room. Tap one to add it to the post being
-                    // written — its shortcode goes into the text, its
-                    // image joins the embeds below.
-                    ScrollView(.horizontal, showsIndicators: false) {
-                        HStack(spacing: 12) {
-                            ForEach(stickerStore.trayStickers, id: \.url) { sticker in
-                                Button {
-                                    attachSticker(url: sticker.url)
-                                } label: {
-                                    AsyncImage(url: StickerStore.shared.resolvedImageURL(for: sticker.url)) { phase in
-                                        switch phase {
-                                        case .success(let image):
-                                            image.resizable().scaledToFit()
-                                        case .failure:
-                                            Image(systemName: "photo")
-                                                .foregroundStyle(Color.fwMuted)
-                                        case .empty:
-                                            ProgressView().tint(Color.fwLime)
-                                        @unknown default:
-                                            EmptyView()
-                                        }
-                                    }
-                                    .frame(width: 44, height: 44)
-                                }
-                                .accessibilityLabel(sticker.label)
-                                .onLongPressGesture {
-                                    // Built-in stickers (Banny) are part
-                                    // of the app and can never be removed;
-                                    // only the user's own and imported
-                                    // stickers offer removal.
-                                    if !StickerStore.isBuiltInSticker(url: sticker.url) {
-                                        stickerToRemove = sticker
-                                    }
-                                }
-                            }
-                            // Your own emoji: paste a direct image link
-                            // and give it a name, and it joins the tray
-                            // as :mine:<name>:.
-                            Button {
-                                showingAddEmoji = true
-                            } label: {
-                                Image(systemName: "plus")
-                                    .font(.title3)
-                                    .foregroundStyle(Color.fwAccent)
-                                    .frame(width: 44, height: 44)
-                                    .background(Color.fwPanel, in: Circle())
-                                    .overlay(Circle().stroke(Color.fwLine, lineWidth: 1))
-                            }
-                            .accessibilityLabel("Add your own emoji")
-                            // Manage packs and stickers: import a pack,
-                            // remove a pack or a sticker, reorder.
-                            Button {
-                                showingManageStickers = true
-                            } label: {
-                                Image(systemName: "slider.horizontal.3")
-                                    .font(.title3)
-                                    .foregroundStyle(Color.fwMuted)
-                                    .frame(width: 44, height: 44)
-                                    .background(Color.fwPanel, in: Circle())
-                                    .overlay(Circle().stroke(Color.fwLine, lineWidth: 1))
-                            }
-                            .accessibilityLabel("Manage stickers")
-                        }
-                        .padding(.vertical, 4)
-                    }
-                    .background(Color.fwPanelSoft, in: RoundedRectangle(cornerRadius: 12))
+                    StickerTrayView { url in attachSticker(url: url) }
                 }
 
                 // The editor shows the emoji itself, not the
@@ -499,29 +420,6 @@ struct ComposeView: View {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
                     editorFocused = true
                 }
-            }
-            .sheet(isPresented: $showingAddEmoji) {
-                AddEmojiView()
-            }
-            .sheet(isPresented: $showingManageStickers) {
-                NavigationStack {
-                    ManageStickersView()
-                }
-            }
-            .confirmationDialog(
-                "Remove this sticker?",
-                isPresented: .constant(stickerToRemove != nil),
-                presenting: stickerToRemove
-            ) { sticker in
-                Button("Remove", role: .destructive) {
-                    StickerStore.shared.removeSticker(url: sticker.url)
-                    stickerToRemove = nil
-                }
-                Button("Cancel", role: .cancel) {
-                    stickerToRemove = nil
-                }
-            } message: { sticker in
-                Text("\(StickerStore.shared.shortcode(for: sticker.url) ?? sticker.label) will stop appearing in the tray. Casts you already sent keep the picture.")
             }
         }
     }

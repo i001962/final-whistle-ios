@@ -82,10 +82,6 @@ struct RoomView: View {
     /// The sticker store, observed so the tray re-renders whenever
     /// a pack or sticker changes. Without this the tray reads
     /// StickerStore.shared once and stays stale: after a sticker
-    /// or pack is removed (long-press in the tray, or the Manage
-    /// screen) the deleted emoji keeps showing until something
-    /// else forces a re-render.
-    @ObservedObject private var stickerStore = StickerStore.shared
     @State private var messages: [Cast] = []
     @State private var rootCast: Cast?
     @State private var loading = false
@@ -103,12 +99,6 @@ struct RoomView: View {
     /// shortcodes in the text when sending, so there is no second
     /// list to keep in sync.
     @State private var showStickerTray = false
-    /// The add-your-own-emoji sheet, opened from the tray's plus
-    /// button. Paste a direct image link and a name, and it joins
-    /// the tray as :mine:<name>:.
-    @State private var showingAddEmoji = false
-    @State private var showingManageStickers = false
-    @State private var stickerToRemove: Sticker?
     @State private var likedHashes: Set<String> = []
     @State private var composerFocused = false
     /// The composer's measured content height, reported by the
@@ -184,29 +174,6 @@ struct RoomView: View {
         }
         .sheet(isPresented: $showingProfile) {
             ProfileView()
-        }
-        .sheet(isPresented: $showingAddEmoji) {
-            AddEmojiView()
-        }
-        .sheet(isPresented: $showingManageStickers) {
-            NavigationStack {
-                ManageStickersView()
-            }
-        }
-        .confirmationDialog(
-            "Remove this sticker?",
-            isPresented: .constant(stickerToRemove != nil),
-            presenting: stickerToRemove
-        ) { sticker in
-            Button("Remove", role: .destructive) {
-                StickerStore.shared.removeSticker(url: sticker.url)
-                stickerToRemove = nil
-            }
-            Button("Cancel", role: .cancel) {
-                stickerToRemove = nil
-            }
-        } message: { sticker in
-            Text("\(StickerStore.shared.shortcode(for: sticker.url) ?? sticker.label) will stop appearing in the tray. Casts you already sent keep the picture.")
         }
     }
 
@@ -307,73 +274,7 @@ struct RoomView: View {
             }
 
             if showStickerTray {
-                // The emoticons, above the text box: a horizontal
-                // strip of the packs' stickers. Tap one to add it
-                // to the post being written.
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 12) {
-                        ForEach(stickerStore.trayStickers, id: \.url) { sticker in
-                            Button {
-                                addStickerToDraft(url: sticker.url)
-                            } label: {
-                                AsyncImage(url: StickerStore.shared.resolvedImageURL(for: sticker.url)) { phase in
-                                    switch phase {
-                                    case .success(let image):
-                                        image.resizable().scaledToFit()
-                                    case .failure:
-                                        Image(systemName: "photo")
-                                            .foregroundStyle(Color.fwMuted)
-                                    case .empty:
-                                        ProgressView().tint(Color.fwLime)
-                                    @unknown default:
-                                        EmptyView()
-                                    }
-                                }
-                                .frame(width: 44, height: 44)
-                            }
-                            .accessibilityLabel(sticker.label)
-                            .onLongPressGesture {
-                                // Built-in stickers (Banny) are part
-                                // of the app and can never be removed;
-                                // only the user's own and imported
-                                // stickers offer removal.
-                                if !StickerStore.isBuiltInSticker(url: sticker.url) {
-                                    stickerToRemove = sticker
-                                }
-                            }
-                        }
-                        // Your own emoji: paste a direct image link
-                        // and give it a name, and it joins the tray
-                        // as :mine:<name>:.
-                        Button {
-                            showingAddEmoji = true
-                        } label: {
-                            Image(systemName: "plus")
-                                .font(.title3)
-                                .foregroundStyle(Color.fwAccent)
-                                .frame(width: 44, height: 44)
-                                .background(Color.fwPanel, in: Circle())
-                                .overlay(Circle().stroke(Color.fwLine, lineWidth: 1))
-                        }
-                        .accessibilityLabel("Add your own emoji")
-                        // Manage packs and stickers: import a pack,
-                        // remove a pack or a sticker, reorder.
-                        Button {
-                            showingManageStickers = true
-                        } label: {
-                            Image(systemName: "slider.horizontal.3")
-                                .font(.title3)
-                                .foregroundStyle(Color.fwMuted)
-                                .frame(width: 44, height: 44)
-                                .background(Color.fwPanel, in: Circle())
-                                .overlay(Circle().stroke(Color.fwLine, lineWidth: 1))
-                        }
-                        .accessibilityLabel("Manage stickers")
-                    }
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 8)
-                }
-                .background(Color.fwPanelSoft)
+                StickerTrayView { url in addStickerToDraft(url: url) }
             }
 
             HStack(spacing: 10) {

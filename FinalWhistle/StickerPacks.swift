@@ -761,167 +761,11 @@ struct StickerView: View {
     }
 }
 
-/// The composer's sticker picker: a grid of the packs' stickers, tap
-/// to send; plus a paste-an-image-URL row to grow "My stickers".
-/// (Quilcast's StickerPicker: a tab per pack; this one is one pack
-/// for now, more packs are more sections.)
-struct StickerPickerSheet: View {
-    @ObservedObject private var store = StickerStore.shared
-    @Environment(\.dismiss) private var dismiss
-    let onPick: (String) -> Void
-
-    @State private var urlField = ""
-    @State private var urlError: String?
-    @State private var checking = false
-
-    /// Every sticker the picker can send: the user's own packs plus
-    /// the built-in packs, so Banny is just there, no install step.
-    private var allStickers: [Sticker] { store.allKnownPacks.flatMap(\.stickers) }
-
-    var body: some View {
-        NavigationStack {
-            VStack(alignment: .leading, spacing: 16) {
-                if allStickers.isEmpty {
-                    // One sticker is one picture — not a Telegram pack,
-                    // not a zip, just a direct link to an image file.
-                    Text("No stickers yet. One sticker is one picture — paste a direct link to an image file (.png, .jpg, .webp or .gif) and it joins the pack.")
-                        .font(.subheadline)
-                        .foregroundStyle(Color.fwMuted)
-                } else {
-                    ScrollView {
-                        LazyVGrid(columns: [GridItem(.adaptive(minimum: 72))], spacing: 12) {
-                            ForEach(allStickers, id: \.url) { sticker in
-                                Button {
-                                    // A built-in pack joins the user's
-                                    // packs the first time one of its
-                                    // stickers is sent, so the counts
-                                    // track what the user actually
-                                    // reaches for. The parent
-                                    // (RoomView) closes the panel when
-                                    // onPick fires, so the user lands
-                                    // back on the chat feed while the
-                                    // sticker sends.
-                                    store.ensurePack(for: sticker.url)
-                                    store.recordUse(url: sticker.url)
-                                    onPick(sticker.url)
-                                } label: {
-                                    AsyncImage(url: StickerStore.shared.resolvedImageURL(for: sticker.url)) { phase in
-                                        switch phase {
-                                        case .success(let image):
-                                            image.resizable().scaledToFit()
-                                        case .failure:
-                                            Image(systemName: "photo")
-                                                .foregroundStyle(Color.fwMuted)
-                                        case .empty:
-                                            ProgressView().tint(Color.fwLime)
-                                        @unknown default:
-                                            EmptyView()
-                                        }
-                                    }
-                                    .frame(width: 72, height: 72)
-                                }
-                                .accessibilityLabel(sticker.label)
-                            }
-                        }
-                    }
-                }
-
-                NavigationLink {
-                    ManageStickersView()
-                } label: {
-                    Label("Manage stickers", systemImage: "slider.horizontal.3")
-                }
-
-                HStack(spacing: 8) {
-                    TextField("Paste a direct image link", text: $urlField)
-                        .textInputAutocapitalization(.never)
-                        .autocorrectionDisabled()
-                        .submitLabel(.done)
-                        .onSubmit { Task { await addURL() } }
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 10)
-                        .background(Color.fwPanel, in: RoundedRectangle(cornerRadius: 12))
-                    Button(checking ? "Checking…" : "Add") { Task { await addURL() } }
-                        .foregroundStyle(Color.fwAccent)
-                        .disabled(checking)
-                }
-                if let urlError {
-                    Text(urlError)
-                        .font(.caption)
-                        .foregroundStyle(Color.fwAccentSoft)
-                }
-                Spacer()
-            }
-            .padding(16)
-            .background(Color.fwBackground)
-            .navigationTitle("Stickers")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button { dismiss() } label: {
-                        Label("Back", systemImage: "chevron.left")
-                    }
-                }
-            }
-        }
-    }
-
-    private func addURL() async {
-        let raw = urlField.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard let url = URL(string: raw), url.scheme == "https" else {
-            urlError = "That needs to be a full https:// link."
-            return
-        }
-        // Fast path: a direct image link (extension or known image
-        // host) needs no network check.
-        if CastMedia.isImageURL(url) {
-            finishAdd(raw)
-            return
-        }
-        // Otherwise ask the link what it is. The old check only read
-        // the address, so an image served at an extension-less URL —
-        // a Castrater public file, an image CDN — was rejected even
-        // though it is a perfectly good picture. The content type is
-        // the proof, not the spelling of the URL.
-        checking = true
-        urlError = nil
-        let isImage = await urlIsImage(url)
-        checking = false
-        if isImage {
-            finishAdd(raw)
-        } else {
-            urlError = "That link isn't a picture. Paste a direct link to an image file — one ending in .png, .jpg, .webp or .gif — not a web page."
-        }
-    }
-
-    private func finishAdd(_ raw: String) {
-        if store.addSticker(url: raw) {
-            urlField = ""
-            urlError = nil
-        } else {
-            urlError = "That sticker is already in the pack."
-        }
-    }
-
-    /// True when the URL serves an image, by content type. HEAD first
-    /// (no body); some hosts don't answer HEAD, so a ranged GET is
-    /// the fallback. A page URL comes back as text/html and fails.
-    private func urlIsImage(_ url: URL) async -> Bool {
-        await StickerStore.urlIsImage(url)
-    }
-}
-
-/// Add your own emoji by URL: paste a direct image link and give
-/// it a name, and it joins "My stickers" as `:mine:<name>:`.
-/// The name is the shortcode id, so it must fit the shortcode
-/// charset (letters, digits, underscores and dashes, starting with
-/// a letter, digit or underscore). The image is proved by content
-/// type, not by the spelling of the URL, so an extension-less image
-/// link works. Once added, the emoji sits in the tray next to Banny
-/// and taps in like any other inline emoji: the shortcode goes in
-/// the text and the image travels as an embed, which is what the
-/// reader resolves the shortcode against.
-struct AddEmojiView: View {
+/// Add one sticker by image link. A destination inside the
+/// Stickers hub, not a sheet of its own: the hub's NavigationStack
+/// provides the back chevron, and a successful add pops back to
+/// the hub, where the sticker shows in My stickers.
+struct AddStickerView: View {
     @ObservedObject private var store = StickerStore.shared
     @Environment(\.dismiss) private var dismiss
 
@@ -931,8 +775,7 @@ struct AddEmojiView: View {
     @State private var checking = false
 
     var body: some View {
-        NavigationStack {
-            VStack(alignment: .leading, spacing: 16) {
+        VStack(alignment: .leading, spacing: 16) {
                 Text("One emoji is one picture — paste a direct link to an image file (.png, .jpg, .webp or .gif) and give it a name. It joins your stickers as :mine:your-name:.")
                     .font(.subheadline)
                     .foregroundStyle(Color.fwMuted)
@@ -976,16 +819,8 @@ struct AddEmojiView: View {
             }
             .padding(16)
             .background(Color.fwBackground)
-            .navigationTitle("Add an emoji")
+            .navigationTitle("Add a sticker")
             .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button { dismiss() } label: {
-                        Label("Back", systemImage: "chevron.left")
-                    }
-                }
-            }
-        }
     }
 
     private func add() async {
@@ -1022,73 +857,114 @@ struct AddEmojiView: View {
 /// Manage "My stickers": delete and reorder, and one tap to sort by
 /// what the user actually sends most. Reached from the picker's
 /// "Manage stickers" row. The order here is the order in the picker.
-struct ManageStickersView: View {
+/// The sticker tray: the horizontal strip of emoji a user picks
+/// from when writing. One component, used by the feed composer
+/// and the room composer alike, so the emoji experience is the
+/// same in both. It only picks: tapping a sticker calls onPick
+/// with its URL, and the caller inserts the shortcode into the
+/// draft. Adding a sticker, importing a pack, and removing or
+/// reordering all live in the one Stickers settings screen,
+/// reached from the tray's settings button; there is no separate
+/// add affordance in the tray. The tray observes the store itself,
+/// so it re-renders whenever a pack or sticker changes, and it
+/// owns the remove confirmation and the settings sheet, so the
+/// two callers carry none of that state.
+struct StickerTrayView: View {
     @ObservedObject private var store = StickerStore.shared
-    @Environment(\.dismiss) private var dismiss
+    @State private var showingManageStickers = false
+    @State private var stickerToRemove: Sticker?
+
+    /// Called with the tapped sticker's URL. The caller inserts
+    /// its shortcode into the draft.
+    var onPick: (String) -> Void
+
+    var body: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 12) {
+                ForEach(store.trayStickers, id: \.url) { sticker in
+                    Button {
+                        onPick(sticker.url)
+                    } label: {
+                        AsyncImage(url: StickerStore.shared.resolvedImageURL(for: sticker.url)) { phase in
+                            switch phase {
+                            case .success(let image):
+                                image.resizable().scaledToFit()
+                            case .failure:
+                                Image(systemName: "photo")
+                                    .foregroundStyle(Color.fwMuted)
+                            case .empty:
+                                ProgressView().tint(Color.fwLime)
+                            @unknown default:
+                                EmptyView()
+                            }
+                        }
+                        .frame(width: 44, height: 44)
+                    }
+                    .accessibilityLabel(sticker.label)
+                    .onLongPressGesture {
+                        // Built-in stickers (Banny) are part of the
+                        // app and can never be removed; only the
+                        // user's own and imported stickers offer
+                        // removal.
+                        if !StickerStore.isBuiltInSticker(url: sticker.url) {
+                            stickerToRemove = sticker
+                        }
+                    }
+                }
+                // Settings: the one place to add a sticker, import a
+                // pack, or remove and reorder.
+                Button {
+                    showingManageStickers = true
+                } label: {
+                    Image(systemName: "slider.horizontal.3")
+                        .font(.title3)
+                        .foregroundStyle(Color.fwMuted)
+                        .frame(width: 44, height: 44)
+                        .background(Color.fwPanel, in: Circle())
+                        .overlay(Circle().stroke(Color.fwLine, lineWidth: 1))
+                }
+                .accessibilityLabel("Manage stickers")
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 8)
+        }
+        .background(Color.fwPanelSoft)
+        .sheet(isPresented: $showingManageStickers) {
+            NavigationStack {
+                ManageStickersView()
+            }
+        }
+        .confirmationDialog(
+            "Remove this sticker?",
+            isPresented: .constant(stickerToRemove != nil),
+            presenting: stickerToRemove
+        ) { sticker in
+            Button("Remove", role: .destructive) {
+                StickerStore.shared.removeSticker(url: sticker.url)
+                stickerToRemove = nil
+            }
+            Button("Cancel", role: .cancel) {
+                stickerToRemove = nil
+            }
+        } message: { sticker in
+            Text("\(StickerStore.shared.shortcode(for: sticker.url) ?? sticker.label) will stop appearing in the tray. Casts you already sent keep the picture.")
+        }
+    }
+}
+
+/// Import a sticker pack from a hosted manifest link. A
+/// destination inside the Stickers hub. The manifest is fetched
+/// once, validated, and saved on the device; the app then uses the
+/// saved copy, never the live URL.
+struct ImportPackView: View {
+    @ObservedObject private var store = StickerStore.shared
 
     @State private var packURL = ""
     @State private var packMessage: String?
     @State private var importing = false
 
-    /// The packs the user can remove: every installed pack.
-    /// packs holds only user-installed copies, so removing one just
-    /// un-installs it — a built-in pack still shows from the bundle.
-    /// Filtering built-in ids out here made an imported pack that
-    /// shares a built-in id (the hosted Banny manifest) invisible
-    /// and undeletable.
-    private var removablePacks: [StickerPack] {
-        store.packs
-    }
-
-    /// "My stickers", looked up by id: an imported pack can land
-    /// at index 0 before "My stickers" exists, and packs[0] would
-    /// then be the wrong pack.
-    private var myStickers: [Sticker] {
-        store.packs.first(where: { $0.id.lowercased() == "mine" })?.stickers ?? []
-    }
-
     var body: some View {
         List {
-            Section {
-                if removablePacks.isEmpty {
-                    Text("No packs yet. Import one below, or add a single emoji from the sticker tray.")
-                        .foregroundStyle(Color.fwMuted)
-                } else {
-                    ForEach(removablePacks, id: \.id) { pack in
-                        HStack(spacing: 12) {
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(pack.title)
-                                    .font(.subheadline)
-                                    .foregroundStyle(Color.fwText)
-                                Text("\(pack.stickers.count) sticker\(pack.stickers.count == 1 ? "" : "s")")
-                                    .font(.caption)
-                                    .foregroundStyle(Color.fwMuted)
-                            }
-                            Spacer()
-                            if StickerStore.builtInPackIDs.contains(pack.id.lowercased()) {
-                                Text("Built-in")
-                                    .font(.caption)
-                                    .foregroundStyle(Color.fwMuted)
-                            } else if pack.id.lowercased() == "mine" {
-                                Text("Yours")
-                                    .font(.caption)
-                                    .foregroundStyle(Color.fwMuted)
-                            }
-                        }
-                    }
-                    .onDelete { offsets in
-                        let ids = offsets.map { removablePacks[$0].id }
-                        for id in ids {
-                            store.removePack(id: id)
-                        }
-                    }
-                }
-            } header: {
-                Text("Packs")
-            } footer: {
-                Text("Swipe left to remove a pack. Removing a pack does not change casts you already sent — those carry the picture in the cast itself. Removing a built-in pack only un-installs your copy; it still shows from the app.")
-            }
-
             Section {
                 TextField("Paste a pack link", text: $packURL)
                     .textInputAutocapitalization(.never)
@@ -1103,18 +979,59 @@ struct ManageStickersView: View {
                         .font(.caption)
                         .foregroundStyle(Color.fwAccentSoft)
                 }
-            } header: {
-                Text("Import a pack")
             } footer: {
                 Text("Paste the link to a farcaster-sticker-pack manifest (.json). The pack is saved on this device, so it keeps working if the link goes down, and it never changes unless you import it again.")
             }
+        }
+        .scrollContentBackground(.hidden)
+        .background(Color.fwBackground)
+        .navigationTitle("Import a pack")
+        .navigationBarTitleDisplayMode(.inline)
+    }
 
-            Section {
-                if myStickers.isEmpty {
+    private func importPack() async {
+        let raw = packURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !raw.isEmpty else { return }
+        importing = true
+        packMessage = nil
+        do {
+            let pack = try await store.importPack(from: raw)
+            packURL = ""
+            packMessage = "Added \(pack.title) (\(pack.stickers.count) stickers)."
+        } catch {
+            packMessage = error.localizedDescription
+        }
+        importing = false
+    }
+}
+
+/// One pack's stickers. A destination inside the Stickers hub. A
+/// built-in pack is view-only: its stickers can never be removed.
+/// My stickers can be reordered and sorted by most used; any user
+/// pack's stickers can be swiped away.
+struct StickerPackDetailView: View {
+    @ObservedObject private var store = StickerStore.shared
+    let packID: String
+
+    private var pack: StickerPack? {
+        store.allKnownPacks.first { $0.id.lowercased() == packID.lowercased() }
+    }
+    private var isBuiltIn: Bool {
+        StickerStore.builtInPackIDs.contains(packID.lowercased())
+    }
+    private var isMine: Bool { packID.lowercased() == "mine" }
+    private var canEdit: Bool {
+        !isBuiltIn && pack != nil && !(pack?.stickers.isEmpty ?? true)
+    }
+
+    var body: some View {
+        List {
+            if let pack {
+                if pack.stickers.isEmpty {
                     Text("No stickers yet.")
                         .foregroundStyle(Color.fwMuted)
                 } else {
-                    ForEach(myStickers, id: \.url) { sticker in
+                    ForEach(pack.stickers, id: \.url) { sticker in
                         HStack(spacing: 12) {
                             AsyncImage(url: StickerStore.shared.resolvedImageURL(for: sticker.url)) { phase in
                                 switch phase {
@@ -1145,59 +1062,151 @@ struct ManageStickersView: View {
                                 }
                             }
                         }
+                        .deleteDisabled(isBuiltIn)
+                        .moveDisabled(!isMine)
                     }
                     .onDelete { offsets in
-                        let urls = offsets.map { myStickers[$0].url }
+                        guard !isBuiltIn else { return }
+                        let urls = offsets.map { pack.stickers[$0].url }
                         for url in urls {
                             store.removeSticker(url: url)
                         }
                     }
                     .onMove { from, to in
+                        guard isMine else { return }
                         store.moveSticker(fromOffsets: from, toOffset: to)
                     }
                 }
-            } header: {
-                Text("My stickers")
-            } footer: {
-                Text("Drag to reorder. Swipe left to delete. The order here is the order in the picker.")
-            }
-
-            Section {
-                Button("Sort by most used") {
-                    store.sortByMostUsed()
+                if isMine {
+                    Section {
+                        Button("Sort by most used") {
+                            store.sortByMostUsed()
+                        }
+                    } footer: {
+                        Text("Puts the stickers you send most at the top.")
+                    }
                 }
-            } footer: {
-                Text("Puts the stickers you send most at the top.")
             }
         }
         .scrollContentBackground(.hidden)
         .background(Color.fwBackground)
-        .navigationTitle("Manage stickers")
+        .navigationTitle(pack?.title ?? "Pack")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
-            ToolbarItem(placement: .cancellationAction) {
-                Button("Done") { dismiss() }
-            }
-            if !removablePacks.isEmpty || !myStickers.isEmpty {
+            if canEdit {
                 ToolbarItem(placement: .primaryAction) {
                     EditButton()
                 }
             }
         }
     }
+}
 
-    private func importPack() async {
-        let raw = packURL.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !raw.isEmpty else { return }
-        importing = true
-        packMessage = nil
-        do {
-            let pack = try await store.importPack(from: raw)
-            packURL = ""
-            packMessage = "Added \(pack.title) (\(pack.stickers.count) stickers)."
-        } catch {
-            packMessage = error.localizedDescription
+/// The Stickers settings hub. One screen for the whole sticker
+/// lifecycle — the tray only picks, everything else lives here.
+/// Progressive disclosure, like the Account panel: the hub shows
+/// the packs you have and two ways to add more, and each row opens
+/// a focused screen. Nothing is an inline form on the hub itself.
+/// Tap a pack to see its stickers (remove, and reorder for My
+/// stickers); Add a sticker pastes one image link; Import a pack
+/// pastes a manifest link.
+struct ManageStickersView: View {
+    @ObservedObject private var store = StickerStore.shared
+    @Environment(\.dismiss) private var dismiss
+
+    /// The packs the user installed (their copies, including an
+    /// adopted built-in). Removing one just un-installs it.
+    private var installedPacks: [StickerPack] { store.packs }
+
+    /// Built-in packs the user has not adopted. They are always
+    /// available from the app, and they are view-only here.
+    private var unadoptedBuiltIns: [StickerPack] {
+        let ids = Set(store.packs.map { $0.id.lowercased() })
+        return StickerStore.builtInPacks.filter { !ids.contains($0.id.lowercased()) }
+    }
+
+    var body: some View {
+        List {
+            Section {
+                if installedPacks.isEmpty && unadoptedBuiltIns.isEmpty {
+                    Text("No packs yet. Import one below, or add a sticker.")
+                        .foregroundStyle(Color.fwMuted)
+                } else {
+                    ForEach(installedPacks, id: \.id) { pack in
+                        NavigationLink {
+                            StickerPackDetailView(packID: pack.id)
+                        } label: {
+                            packRow(pack)
+                        }
+                    }
+                    .onDelete { offsets in
+                        let ids = offsets.map { installedPacks[$0].id }
+                        for id in ids {
+                            store.removePack(id: id)
+                        }
+                    }
+                    ForEach(unadoptedBuiltIns, id: \.id) { pack in
+                        NavigationLink {
+                            StickerPackDetailView(packID: pack.id)
+                        } label: {
+                            packRow(pack)
+                        }
+                    }
+                }
+            } header: {
+                Text("Packs")
+            } footer: {
+                Text("Swipe left to remove a pack. Removing a pack does not change casts you already sent — those carry the picture in the cast itself. Removing a built-in pack only un-installs your copy; it still shows from the app.")
+            }
+
+            Section {
+                NavigationLink {
+                    AddStickerView()
+                } label: {
+                    Label("Add a sticker", systemImage: "plus")
+                }
+                NavigationLink {
+                    ImportPackView()
+                } label: {
+                    Label("Import a pack", systemImage: "square.and.arrow.down")
+                }
+            } header: {
+                Text("Add")
+            } footer: {
+                Text("Add one sticker by image link, or a whole pack from a manifest link. Either way it is saved on this device.")
+            }
         }
-        importing = false
+        .scrollContentBackground(.hidden)
+        .background(Color.fwBackground)
+        .navigationTitle("Stickers")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .cancellationAction) {
+                Button("Done") { dismiss() }
+            }
+        }
+    }
+
+    private func packRow(_ pack: StickerPack) -> some View {
+        HStack(spacing: 12) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(pack.title)
+                    .font(.subheadline)
+                    .foregroundStyle(Color.fwText)
+                Text("\(pack.stickers.count) sticker\(pack.stickers.count == 1 ? "" : "s")")
+                    .font(.caption)
+                    .foregroundStyle(Color.fwMuted)
+            }
+            Spacer()
+            if StickerStore.builtInPackIDs.contains(pack.id.lowercased()) {
+                Text("Built-in")
+                    .font(.caption)
+                    .foregroundStyle(Color.fwMuted)
+            } else if pack.id.lowercased() == "mine" {
+                Text("Yours")
+                    .font(.caption)
+                    .foregroundStyle(Color.fwMuted)
+            }
+        }
     }
 }

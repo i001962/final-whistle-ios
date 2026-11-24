@@ -693,7 +693,7 @@ final class StickerStore: ObservableObject {
     /// A short, human-readable reason for a decode failure, so
     /// an unreadable pack names the key and the problem instead of
     /// blaming the link.
-    static func decodeReason(_ error: Error) -> String {
+    nonisolated static func decodeReason(_ error: Error) -> String {
         guard let de = error as? DecodingError else { return "The pack file isn't valid JSON." }
         switch de {
         case .keyNotFound(let key, _):

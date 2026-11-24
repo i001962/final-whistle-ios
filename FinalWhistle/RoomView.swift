@@ -425,18 +425,21 @@ struct RoomView: View {
         // the same message. The default is always the root cast; a
         // reply to a message is one explicit long-press per message.
         replyingTo = nil
-        // The emoji travel as embeds with the text, as emoji://
-        // identifiers, not image URLs (the room experiment): they are
+        // The emoji travel as embeds with the text, as ordinary
+        // image URLs (the colleague's sticker transport): they are
         // derived from the shortcodes in the draft, so an emoji the
         // user backspaced out of the editor is not sent. The cast
-        // carries `emoji://banny/goal` on-chain; the reader resolves
-        // it through their sticker catalog to the image, and the
-        // shortcode in the text renders inline against it. An
-        // identifier the reader cannot resolve leaves the shortcode
-        // as literal text. The embeds are identifiers, so the reader
-        // draws them as pictures only after resolving them — the
-        // send path just puts the string in Embed field 1.
-        let embeds = Array(StickerStore.shared.stickerEmojiURIs(forShortcodesIn: text).prefix(2))
+        // carries the image URL on-chain, so every client renders the
+        // picture, and the URL is the authority for what the emoji
+        // means — a shortcode that resolves to a different URL than
+        // the embed is not rendered inline, so the meaning cannot be
+        // hijacked by a changed pack. The shortcode in the text is
+        // the legible label, verified against the embed URL by the
+        // inline pipeline. The send path just puts the URL string in
+        // Embed field 1. (The earlier emoji:// experiment put a short
+        // identifier in the embed instead; new sends use the URL, and
+        // the emoji:// read path in CastMedia stays for those casts.)
+        let embeds = Array(StickerStore.shared.stickerURLs(forShortcodesIn: text).prefix(2))
         do {
             let hash = try await identity.reply(to: target, text: text, linkURLs: embeds)
             draft = ""

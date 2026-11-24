@@ -49,9 +49,12 @@ extension Cast {
     }
 
     var imageEmbedURLs: [URL] {
-        // Plain image embeds, plus emoji:// embeds resolved to their
-        // image through the sticker catalog. Folding the resolved
-        // URLs in here means the whole inline-emoji pipeline works
+        // Plain image embeds — since the transport switch, a room
+        // sticker's image URL is itself a plain image embed, so it
+        // lands here directly — plus emoji:// embeds resolved to
+        // their image through the sticker catalog, for the casts sent
+        // during the emoji:// experiment. Folding the resolved URLs
+        // in here means the whole inline-emoji pipeline works
         // unchanged: a shortcode matches its image by URL, consumed
         // embeds are skipped once, and a shortcode-only message
         // renders its stickers large. An emoji:// URI that does not
@@ -74,7 +77,9 @@ extension Cast {
     /// The embed URLs that are emoji:// identifiers (scheme `emoji`),
     /// before resolution. These are the on-chain form of the room's
     /// emoji experiment: a short pack-scoped identifier, resolved
-    /// through the app's sticker catalog to an image URL.
+    /// through the app's sticker catalog to an image URL. New sends
+    /// use image URLs instead (see RoomView); this read path stays
+    /// so the experiment casts still render.
     var emojiEmbedURIs: [URL] { embedURLs.filter { $0.scheme?.lowercased() == "emoji" } }
     /// The image URLs that emoji:// embeds resolve to, via the
     /// sticker catalog. Unresolvable URIs (an unknown pack or emoji)

@@ -105,6 +105,17 @@ d = [x["hardwareProperties"] for x in json.load(open(sys.argv[1]))["result"]["de
      and x["connectionProperties"].get("tunnelState") != "unavailable"]
 print(d[0]["udid"] if d else "")' "$OUT/devices.json")
 [ -n "$UDID" ] || { echo "No iPhone connected. Plug it in, unlock it and trust this Mac." >&2; exit 1; }
+# Point the build at the full Xcode app, not the Command Line
+# Tools. If xcode-select points at the CLT, xcodebuild cannot see
+# the Apple ID accounts that live in the Xcode GUI, so it fails
+# with "No Account for Team" even though the account is fine in
+# Xcode. This forces the full Xcode's tools for this build only
+# and does not change the system xcode-select.
+echo "xcode-select points at: $(xcode-select -p 2>/dev/null || echo unknown)" >&2
+if [ -d /Applications/Xcode.app/Contents/Developer ]; then
+  export DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer
+  echo "Using full Xcode at /Applications/Xcode.app for the build." >&2
+fi
 # Unlock the login keychain before building. The Apple ID account
 # and the signing identity live there; the Xcode GUI unlocks it on
 # demand, but a CLI xcodebuild cannot prompt, so when it is locked

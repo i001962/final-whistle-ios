@@ -250,7 +250,11 @@ struct ComposeView: View {
                 }
 
                 if showStickerTray {
+                    // The tray keeps its height: without priority
+                    // the editor squeezes it to a clipped row when
+                    // the keyboard is open.
                     StickerTrayView { url in attachSticker(url: url) }
+                        .layoutPriority(1)
                 }
 
                 // The editor shows the emoji itself, not the

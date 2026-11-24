@@ -275,6 +275,7 @@ struct RoomView: View {
 
             if showStickerTray {
                 StickerTrayView { url in addStickerToDraft(url: url) }
+                    .layoutPriority(1)
             }
 
             HStack(spacing: 10) {

@@ -1102,8 +1102,12 @@ struct StickerTrayView: View {
             // A plain VStack, not a LazyVStack: the content is
             // small (tens of stickers) and a lazy stack inside
             // this ScrollView clipped the bottom row on device.
-            // 300pt is tall enough that the next pack's header
-            // and first row peek in, so the scroll is obvious.
+            // The tray needs a floor as well as a ceiling: the
+            // composer squeezes it when the keyboard is open, and
+            // a maxHeight alone lets it collapse to a clipped
+            // single row. 200pt shows the header, one full row
+            // and the next pack peeking in; 300pt shows Banny
+            // plus the start of Premier League.
             ScrollView(.vertical, showsIndicators: true) {
                 VStack(alignment: .leading, spacing: 16) {
                     ForEach(filteredPacks, id: \.pack.id) { entry in
@@ -1129,7 +1133,7 @@ struct StickerTrayView: View {
                 .padding(.horizontal, 16)
                 .padding(.vertical, 8)
             }
-            .frame(maxHeight: 300)
+            .frame(minHeight: 200, maxHeight: 300)
         }
         .background(Color.fwPanelSoft)
         .sheet(isPresented: $showingManageStickers) {

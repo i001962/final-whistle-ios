@@ -1050,7 +1050,7 @@ struct StickerTrayView: View {
                     EmptyView()
                 }
             }
-            .frame(width: 44, height: 44)
+            .frame(width: 56, height: 56)
         }
         .accessibilityLabel(sticker.label)
         .onLongPressGesture {
@@ -1099,15 +1099,20 @@ struct StickerTrayView: View {
             // Multi-line, vertically scrollable: stickers are
             // grouped by pack and wrap into a grid, so a large
             // pack reads top to bottom instead of one long row.
+            // A plain VStack, not a LazyVStack: the content is
+            // small (tens of stickers) and a lazy stack inside
+            // this ScrollView clipped the bottom row on device.
+            // 300pt is tall enough that the next pack's header
+            // and first row peek in, so the scroll is obvious.
             ScrollView(.vertical, showsIndicators: true) {
-                LazyVStack(alignment: .leading, spacing: 16) {
+                VStack(alignment: .leading, spacing: 16) {
                     ForEach(filteredPacks, id: \.pack.id) { entry in
                         VStack(alignment: .leading, spacing: 8) {
-                            Text(entry.pack.title)
+                            Text("\(entry.pack.title) · \(entry.stickers.count)")
                                 .font(.caption)
                                 .fontWeight(.semibold)
                                 .foregroundStyle(Color.fwMuted)
-                            LazyVGrid(columns: [GridItem(.adaptive(minimum: 44, maximum: 44), spacing: 12)], spacing: 12) {
+                            LazyVGrid(columns: [GridItem(.adaptive(minimum: 56, maximum: 56), spacing: 12)], spacing: 12) {
                                 ForEach(entry.stickers, id: \.url) { sticker in
                                     stickerButton(sticker)
                                 }
@@ -1124,7 +1129,7 @@ struct StickerTrayView: View {
                 .padding(.horizontal, 16)
                 .padding(.vertical, 8)
             }
-            .frame(maxHeight: 260)
+            .frame(maxHeight: 300)
         }
         .background(Color.fwPanelSoft)
         .sheet(isPresented: $showingManageStickers) {

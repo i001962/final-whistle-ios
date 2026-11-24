@@ -57,26 +57,38 @@ final class StickerStore: ObservableObject {
         "https://final-whistle.app/st/\(pack)/\(hash).webp"
     }
 
-    // MARK: - Built-in packs (static, shipped with the app)
+    // MARK: - Built-in packs (data, shipped with the app)
 
-    /// Packs that ship with the app, not entered by the user. The
-    /// banny images are the d33m art, served as WebP from the
-    /// Castrater storage bucket (qstorage.quilibrium.com) — the same
-    /// art as the d33m repo, in the folder the emoji:// experiment
-    /// resolves against. A sticker in a built-in pack renders as a
-    /// sticker for everyone, even a reader who has not added the
-    /// pack — the pack is the shared registry, the same shape as
-    /// Slack's workspace emoji list.
-    static let builtInPacks: [StickerPack] = [
-        StickerPack(id: "banny", title: "Banny", stickers: [
-            Sticker(url: "https://qstorage.quilibrium.com/storage-castrater/banny-pack/goal.webp", label: "goal"),
-            Sticker(url: "https://qstorage.quilibrium.com/storage-castrater/banny-pack/lfg.webp", label: "lfg"),
-            Sticker(url: "https://qstorage.quilibrium.com/storage-castrater/banny-pack/popcorn.webp", label: "popcorn"),
-            Sticker(url: "https://qstorage.quilibrium.com/storage-castrater/banny-pack/redcard.webp", label: "redcard"),
-            Sticker(url: "https://qstorage.quilibrium.com/storage-castrater/banny-pack/stoned.webp", label: "stoned"),
-            Sticker(url: "https://qstorage.quilibrium.com/storage-castrater/banny-pack/wow.webp", label: "wow"),
-        ]),
-    ]
+    /// Packs that ship with the app, not entered by the user. Each
+    /// pack is a JSON file in the app bundle (banny-pack.json), so
+    /// the pack is data, not code: the pack id, title, sticker names
+    /// and image URLs live in the file, and adding a sticker is
+    /// editing the file, not a source change. The same file is the
+    /// shape a hosted pack would be fetched as later — the phone
+    /// book the emoji:// resolver reads. If a bundled file fails to
+    /// load, the hardcoded copy below is the fallback, so the pack
+    /// never disappears from a bundling mistake.
+    static let builtInPacks: [StickerPack] = {
+        var packs: [StickerPack] = []
+        if let url = Bundle.main.url(forResource: "banny-pack", withExtension: "json"),
+           let data = try? Data(contentsOf: url),
+           let pack = try? JSONDecoder().decode(StickerPack.self, from: data) {
+            packs.append(pack)
+        }
+        if packs.isEmpty {
+            packs = [
+                StickerPack(id: "banny", title: "Banny", stickers: [
+                    Sticker(url: "https://qstorage.quilibrium.com/storage-castrater/banny-pack/goal.webp", label: "goal"),
+                    Sticker(url: "https://qstorage.quilibrium.com/storage-castrater/banny-pack/lfg.webp", label: "lfg"),
+                    Sticker(url: "https://qstorage.quilibrium.com/storage-castrater/banny-pack/popcorn.webp", label: "popcorn"),
+                    Sticker(url: "https://qstorage.quilibrium.com/storage-castrater/banny-pack/redcard.webp", label: "redcard"),
+                    Sticker(url: "https://qstorage.quilibrium.com/storage-castrater/banny-pack/stoned.webp", label: "stoned"),
+                    Sticker(url: "https://qstorage.quilibrium.com/storage-castrater/banny-pack/wow.webp", label: "wow"),
+                ]),
+            ]
+        }
+        return packs
+    }()
 
     /// All packs the app knows: the user's own plus the built-ins.
     /// Rendering and shortcode resolution look here, so a built-in

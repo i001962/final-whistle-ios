@@ -105,6 +105,19 @@ d = [x["hardwareProperties"] for x in json.load(open(sys.argv[1]))["result"]["de
      and x["connectionProperties"].get("tunnelState") != "unavailable"]
 print(d[0]["udid"] if d else "")' "$OUT/devices.json")
 [ -n "$UDID" ] || { echo "No iPhone connected. Plug it in, unlock it and trust this Mac." >&2; exit 1; }
+# Diagnose what the CLI can see, before building. The keychain
+# unlock and the DEVELOPER_DIR fix did not fix No Account, and
+# xcode-select already points at the full Xcode, so stop guessing:
+# print the accounts, profiles, and signing identities the CLI
+# can actually see. This runs before the build.
+echo "--- CLI signing diagnostics ---" >&2
+echo "Accounts plist:" >&2
+defaults read ~/Library/Developer/Xcode/UserData/IDEDeveloperAccount.plist 2>&1 | grep -E 'team|Team|appleID|AppleID|username' | head -20 >&2 || echo "(could not read accounts plist)" >&2
+echo "Provisioning profiles for app.final-whistle:" >&2
+grep -l "app.final-whistle" ~/Library/MobileDevice/Provisioning\ Profiles/*.mobileprovision 2>/dev/null | head -5 >&2 || echo "(no profile files found)" >&2
+echo "Codesigning identities:" >&2
+security find-identity -v -p codesigning 2>&1 | head -10 >&2
+echo "--- end diagnostics ---" >&2
 # Point the build at the full Xcode app, not the Command Line
 # Tools. If xcode-select points at the CLT, xcodebuild cannot see
 # the Apple ID accounts that live in the Xcode GUI, so it fails

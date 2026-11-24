@@ -312,7 +312,7 @@ struct RoomView: View {
                 // to the post being written.
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 12) {
-                        ForEach(stickerStore.allKnownPacks.flatMap(\.stickers), id: \.url) { sticker in
+                        ForEach(stickerStore.trayStickers, id: \.url) { sticker in
                             Button {
                                 addStickerToDraft(url: sticker.url)
                             } label: {

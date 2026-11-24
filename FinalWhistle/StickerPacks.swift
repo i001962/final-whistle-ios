@@ -146,6 +146,22 @@ final class StickerStore: ObservableObject {
         return packs + Self.builtInPacks.filter { !userIDs.contains($0.id) }
     }
 
+    /// The stickers the tray shows: every sticker in every known
+    /// pack, each URL once. A URL can sit in two packs (a sticker
+    /// added by hand to My stickers that is also in a built-in
+    /// pack, or the same image in two imported packs); without the
+    /// dedupe the tray's ForEach gets duplicate ids and the sticker
+    /// can fail to render, so a re-added sticker looks missing even
+    /// though it is on the device.
+    var trayStickers: [Sticker] {
+        var seen = Set<String>()
+        var out: [Sticker] = []
+        for sticker in allKnownPacks.flatMap(\.stickers) {
+            if seen.insert(sticker.url).inserted { out.append(sticker) }
+        }
+        return out
+    }
+
     /// Resolve an inline shortcode `:packid:emojiconid:` to its image
     /// URL, or nil when the pack or the sticker is unknown. The label
     /// is the sticker id inside its pack.
@@ -551,11 +567,19 @@ final class StickerStore: ObservableObject {
         }
     }
 
-    /// Remove a sticker from every pack that has it. Built-in
-    /// stickers are never removed (see builtInPackIDs).
+    /// Remove a sticker from every user pack that has it, except
+    /// an installed copy of a built-in pack. Removing a sticker
+    /// from that copy would hide it even though the pack is still
+    /// there, because the copy shadows the bundle copy by id. But
+    /// a sticker the user added by hand to My stickers — even one
+    /// whose URL is also a built-in sticker — is removed from My
+    /// stickers; the built-in pack still shows it. The old blanket
+    /// guard (refuse when the URL is a built-in sticker at all)
+    /// made such a sticker stuck: it could not be removed from My
+    /// stickers, and re-adding it then failed as a duplicate while
+    /// the tray did not show it.
     func removeSticker(url: String) {
-        guard !Self.isBuiltInSticker(url: url) else { return }
-        for packIndex in packs.indices {
+        for packIndex in packs.indices where !Self.builtInPackIDs.contains(packs[packIndex].id.lowercased()) {
             packs[packIndex].stickers.removeAll { $0.url == url }
         }
         try? store.save(packs)
@@ -586,12 +610,15 @@ final class StickerStore: ObservableObject {
         try? store.save(packs)
     }
 
-    /// Remove an installed pack. A built-in pack is part of the app
-    /// and can never be deleted. (Removing the user's installed copy
-    /// of one would be a no-op anyway: the bundle copy would still
-    /// show, so the pack would appear to survive the delete.)
+    /// Remove an installed pack. packs holds only user-installed
+    /// copies, so removing one just un-installs it: a built-in pack
+    /// still shows from the bundle, so its stickers never disappear.
+    /// There is no guard on the id, because an imported pack that
+    /// shares a built-in id (the hosted Banny manifest) is the
+    /// user's import and must be deletable; guarding it made that
+    /// import stuck — it could not be removed, and re-importing it
+    /// refreshed a pack the tray did not show.
     func removePack(id: String) {
-        guard !Self.builtInPackIDs.contains(id.lowercased()) else { return }
         packs.removeAll { $0.id.lowercased() == id.lowercased() }
         try? store.save(packs)
     }
@@ -1003,11 +1030,14 @@ struct ManageStickersView: View {
     @State private var packMessage: String?
     @State private var importing = false
 
-    /// The packs the user can remove: imported packs and My
-    /// stickers. Built-in packs are part of the app and are never
-    /// listed here, so there is no way to delete one.
+    /// The packs the user can remove: every installed pack.
+    /// packs holds only user-installed copies, so removing one just
+    /// un-installs it — a built-in pack still shows from the bundle.
+    /// Filtering built-in ids out here made an imported pack that
+    /// shares a built-in id (the hosted Banny manifest) invisible
+    /// and undeletable.
     private var removablePacks: [StickerPack] {
-        store.packs.filter { !StickerStore.builtInPackIDs.contains($0.id.lowercased()) }
+        store.packs
     }
 
     /// "My stickers", looked up by id: an imported pack can land
@@ -1035,7 +1065,11 @@ struct ManageStickersView: View {
                                     .foregroundStyle(Color.fwMuted)
                             }
                             Spacer()
-                            if pack.id.lowercased() == "mine" {
+                            if StickerStore.builtInPackIDs.contains(pack.id.lowercased()) {
+                                Text("Built-in")
+                                    .font(.caption)
+                                    .foregroundStyle(Color.fwMuted)
+                            } else if pack.id.lowercased() == "mine" {
                                 Text("Yours")
                                     .font(.caption)
                                     .foregroundStyle(Color.fwMuted)
@@ -1052,7 +1086,7 @@ struct ManageStickersView: View {
             } header: {
                 Text("Packs")
             } footer: {
-                Text("Swipe left to remove a pack. Removing a pack does not change casts you already sent — those carry the picture in the cast itself. Built-in packs are not listed here; they are part of the app and always available.")
+                Text("Swipe left to remove a pack. Removing a pack does not change casts you already sent — those carry the picture in the cast itself. Removing a built-in pack only un-installs your copy; it still shows from the app.")
             }
 
             Section {

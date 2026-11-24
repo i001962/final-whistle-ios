@@ -269,7 +269,7 @@ struct ComposeView: View {
                     // image joins the embeds below.
                     ScrollView(.horizontal, showsIndicators: false) {
                         HStack(spacing: 12) {
-                            ForEach(stickerStore.allKnownPacks.flatMap(\.stickers), id: \.url) { sticker in
+                            ForEach(stickerStore.trayStickers, id: \.url) { sticker in
                                 Button {
                                     attachSticker(url: sticker.url)
                                 } label: {

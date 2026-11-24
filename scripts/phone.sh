@@ -112,7 +112,8 @@ print(d[0]["udid"] if d else "")' "$OUT/devices.json")
 # can actually see. This runs before the build.
 echo "--- CLI signing diagnostics ---" >&2
 echo "Accounts plist:" >&2
-defaults read ~/Library/Developer/Xcode/UserData/IDEDeveloperAccount.plist 2>&1 | grep -E 'team|Team|appleID|AppleID|username' | head -20 >&2 || echo "(could not read accounts plist)" >&2
+ls -la ~/Library/Developer/Xcode/UserData/IDEDeveloperAccount.plist 2>&1 >&2 || echo "(accounts plist file missing)" >&2
+plutil -p ~/Library/Developer/Xcode/UserData/IDEDeveloperAccount.plist 2>&1 | grep -E 'team|Team|appleID|AppleID|username|displayName' | head -20 >&2 || echo "(could not parse accounts plist)" >&2
 echo "Provisioning profiles for app.final-whistle:" >&2
 grep -l "app.final-whistle" ~/Library/MobileDevice/Provisioning\ Profiles/*.mobileprovision 2>/dev/null | head -5 >&2 || echo "(no profile files found)" >&2
 echo "Codesigning identities:" >&2

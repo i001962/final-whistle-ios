@@ -54,6 +54,30 @@ struct Sticker: Codable, Hashable {
         self.lastUsedAt = lastUsedAt
         self.sha256 = sha256
     }
+
+    // Explicit decode: the manifest's stickers carry only url, id
+    // and sha256; useCount and lastUsedAt are app-side state that a
+    // pack file never has, so they decode with their defaults.
+    // Written out (with encode below) instead of synthesized, so a
+    // manifest that reads fine in every other JSON reader is not
+    // left to a synthesis subtlety.
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        url = try c.decode(String.self, forKey: .url)
+        label = try c.decode(String.self, forKey: .label)
+        useCount = try c.decodeIfPresent(Int.self, forKey: .useCount) ?? 0
+        lastUsedAt = try c.decodeIfPresent(Date.self, forKey: .lastUsedAt)
+        sha256 = try c.decodeIfPresent(String.self, forKey: .sha256)
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(url, forKey: .url)
+        try c.encode(label, forKey: .label)
+        try c.encode(useCount, forKey: .useCount)
+        try c.encodeIfPresent(lastUsedAt, forKey: .lastUsedAt)
+        try c.encodeIfPresent(sha256, forKey: .sha256)
+    }
 }
 
 struct StickerPack: Codable, Hashable, Identifiable {
@@ -78,6 +102,23 @@ struct StickerPack: Codable, Hashable, Identifiable {
         self.id = id
         self.title = title
         self.stickers = stickers
+    }
+
+    // Explicit decode to match Sticker: id, name and stickers are
+    // required; format, version, description, author and the rest
+    // are not StickerPack fields and are ignored.
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(String.self, forKey: .id)
+        title = try c.decode(String.self, forKey: .title)
+        stickers = try c.decode([Sticker].self, forKey: .stickers)
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(id, forKey: .id)
+        try c.encode(title, forKey: .title)
+        try c.encode(stickers, forKey: .stickers)
     }
 }
 
@@ -649,6 +690,81 @@ final class StickerStore: ObservableObject {
     /// picture — at worst its shortcode stops rendering inline and
     /// stays as text.
     @MainActor
+    /// A short, human-readable reason for a decode failure, so
+    /// an unreadable pack names the key and the problem instead of
+    /// blaming the link.
+    static func decodeReason(_ error: Error) -> String {
+        guard let de = error as? DecodingError else { return "The pack file isn't valid JSON." }
+        switch de {
+        case .keyNotFound(let key, _):
+            return "It's missing '\(key.stringValue)'."
+        case .typeMismatch(let type, let ctx):
+            let key = ctx.codingPath.last?.stringValue ?? "the pack"
+            return "'\(key)' isn't a \(String(describing: type)) the way this app expects."
+        case .valueNotFound(_, let ctx):
+            let key = ctx.codingPath.last?.stringValue ?? "the pack"
+            return "'\(key)' is empty."
+        case .dataCorrupted(let ctx):
+            return ctx.debugDescription.isEmpty ? "The pack file is damaged." : ctx.debugDescription
+        @unknown default:
+            return "The pack file couldn't be read."
+        }
+    }
+
+    /// Fetch and validate a pack manifest without saving it, for
+    /// the directory preview. Same checks as importPack (https,
+    /// 128 KiB, Hypersnap format, version 1, valid id, 1-100
+    /// stickers, unique ids, https sticker links); the caller saves
+    /// it with importPack when the user taps Import.
+    static func previewPack(from urlString: String) async throws -> StickerPack {
+        let raw = urlString.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let url = URL(string: raw), url.scheme == "https" else {
+            throw PackImportError.badURL
+        }
+        let data: Data
+        do {
+            let (fetched, response) = try await URLSession.shared.data(from: url)
+            guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
+                throw PackImportError.fetchFailed
+            }
+            data = fetched
+        } catch let error as PackImportError {
+            throw error
+        } catch {
+            throw PackImportError.fetchFailed
+        }
+        guard data.count <= 128 * 1024 else { throw PackImportError.tooLarge }
+        struct Header: Decodable { let format: String; let version: Int }
+        let header: Header
+        do {
+            header = try JSONDecoder().decode(Header.self, from: data)
+        } catch {
+            throw PackImportError.notAManifest
+        }
+        guard header.format == "farcaster-sticker-pack" || header.format == "hypersnap-sticker-pack" else { throw PackImportError.notAManifest }
+        guard header.version == 1 else { throw PackImportError.wrongVersion(header.version) }
+        let pack: StickerPack
+        do {
+            pack = try JSONDecoder().decode(StickerPack.self, from: data)
+        } catch {
+            throw PackImportError.unreadablePack(decodeReason(error))
+        }
+        guard pack.id.range(of: #"^[a-z0-9_][a-z0-9_-]{0,31}$"#, options: .regularExpression) != nil else {
+            throw PackImportError.badPackID
+        }
+        guard !pack.stickers.isEmpty else { throw PackImportError.emptyPack }
+        guard pack.stickers.count <= 100 else { throw PackImportError.tooManyStickers }
+        var seenIDs = Set<String>()
+        for sticker in pack.stickers {
+            let id = sticker.label.lowercased()
+            guard seenIDs.insert(id).inserted else { throw PackImportError.badSticker(id) }
+            guard let stickerURL = URL(string: sticker.url), stickerURL.scheme == "https" else {
+                throw PackImportError.badSticker(id)
+            }
+        }
+        return pack
+    }
+
     func importPack(from urlString: String) async throws -> StickerPack {
         let raw = urlString.trimmingCharacters(in: .whitespacesAndNewlines)
         guard let url = URL(string: raw), url.scheme == "https" else {
@@ -685,7 +801,7 @@ final class StickerStore: ObservableObject {
         do {
             pack = try JSONDecoder().decode(StickerPack.self, from: data)
         } catch {
-            throw PackImportError.unreadablePack
+            throw PackImportError.unreadablePack(Self.decodeReason(error))
         }
         guard pack.id.range(of: #"^[a-z0-9_][a-z0-9_-]{0,31}$"#, options: .regularExpression) != nil else {
             throw PackImportError.badPackID
@@ -726,7 +842,7 @@ enum PackImportError: LocalizedError {
     case fetchFailed
     case tooLarge
     case notAManifest
-    case unreadablePack
+    case unreadablePack(String)
     case wrongVersion(Int)
     case badPackID
     case emptyPack
@@ -739,7 +855,7 @@ enum PackImportError: LocalizedError {
         case .fetchFailed: return "Couldn't fetch that link. Check the address and try again."
         case .tooLarge: return "That pack file is too big (over 128 KiB)."
         case .notAManifest: return "That link isn't a sticker pack. It needs to be a Hypersnap sticker pack manifest."
-        case .unreadablePack: return "That link is a sticker pack manifest, but the pack itself couldn't be read. It may be missing its id, name, or stickers."
+        case .unreadablePack(let reason): return "That link is a sticker pack manifest, but the pack itself couldn't be read. \(reason)"
         case .wrongVersion(let v): return "That pack uses manifest version \(v), and this app reads version 1."
         case .badPackID: return "That pack's id isn't a valid shortcode id."
         case .emptyPack: return "That pack has no stickers in it."
@@ -974,15 +1090,165 @@ struct StickerTrayView: View {
 /// destination inside the Stickers hub. The manifest is fetched
 /// once, validated, and saved on the device; the app then uses the
 /// saved copy, never the live URL.
+/// A sticker pack directory: a JSON list of packs, each with a
+/// manifest link. The Vibeshift directory is the one the user
+/// pointed at. A pack is previewed from its manifest before it is
+/// imported, so the user sees what they are selecting.
+struct StickerDirectory: Decodable {
+    let packs: [DirectoryPack]
+
+    struct DirectoryPack: Decodable, Identifiable {
+        let name: String
+        let manifestUrl: String
+        let importUrl: String
+        let format: String
+        let castHash: String?
+
+        var id: String { manifestUrl }
+    }
+
+    static let directoryURL = URL(string: "https://vibeshift.onchain.cooking/api/vibeshift/sticker-packs")!
+
+    /// Fetch the directory's pack list. A non-2xx status or a bad
+    /// body is a fetch failure, not a pack problem.
+    static func fetch() async throws -> [DirectoryPack] {
+        let (data, response) = try await URLSession.shared.data(from: directoryURL)
+        guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
+            throw PackImportError.fetchFailed
+        }
+        return try JSONDecoder().decode(StickerDirectory.self, from: data).packs
+    }
+}
+
+/// A pack preview: the manifest fetched and shown before import, so
+/// the user knows what they are selecting. Tapping Import saves it
+/// with the same importPack the manual link uses.
+struct PackPreviewView: View {
+    @ObservedObject private var store = StickerStore.shared
+
+    let entry: StickerDirectory.DirectoryPack
+
+    @State private var pack: StickerPack?
+    @State private var loadError: String?
+    @State private var importing = false
+    @State private var importMessage: String?
+
+    var body: some View {
+        Group {
+            if let pack {
+                List {
+                    Section {
+                        ForEach(pack.stickers, id: \.url) { sticker in
+                            HStack(spacing: 12) {
+                                if let url = URL(string: sticker.url) {
+                                    AsyncImage(url: StickerStore.resolvedImageURL(for: url)) { phase in
+                                        if let image = phase.image {
+                                            image.resizable().scaledToFit().frame(width: 48, height: 48)
+                                        } else {
+                                            Color.fwPanelSoft.frame(width: 48, height: 48).clipShape(RoundedRectangle(cornerRadius: 8))
+                                        }
+                                    }
+                                }
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(sticker.label).font(.subheadline)
+                                    Text(sticker.url).font(.caption).foregroundStyle(Color.fwMuted).lineLimit(1)
+                                }
+                            }
+                        }
+                    } header: {
+                        Text("\(pack.title) · \(pack.stickers.count) stickers")
+                    } footer: {
+                        Text("From \(entry.manifestUrl)")
+                    }
+                    Section {
+                        Button(importing ? "Importing…" : "Import this pack") { Task { await importPack() } }
+                            .foregroundStyle(Color.fwAccent)
+                            .disabled(importing)
+                        if let importMessage {
+                            Text(importMessage)
+                                .font(.caption)
+                                .foregroundStyle(Color.fwAccentSoft)
+                        }
+                    }
+                }
+            } else if let loadError {
+                VStack(spacing: 12) {
+                    Text(entry.name).font(.headline)
+                    Text(loadError).font(.subheadline).foregroundStyle(Color.fwMuted).multilineTextAlignment(.center)
+                }
+                .padding()
+            } else {
+                ProgressView("Loading \(entry.name)…")
+            }
+        }
+        .scrollContentBackground(.hidden)
+        .background(Color.fwBackground)
+        .navigationTitle(entry.name)
+        .navigationBarTitleDisplayMode(.inline)
+        .task { await load() }
+    }
+
+    private func load() async {
+        do {
+            pack = try await StickerStore.previewPack(from: entry.manifestUrl)
+        } catch {
+            loadError = error.localizedDescription
+        }
+    }
+
+    private func importPack() async {
+        importing = true
+        importMessage = nil
+        do {
+            let saved = try await store.importPack(from: entry.manifestUrl)
+            importMessage = "Added \(saved.title) (\(saved.stickers.count) stickers)."
+        } catch {
+            importMessage = error.localizedDescription
+        }
+        importing = false
+    }
+}
+
 struct ImportPackView: View {
     @ObservedObject private var store = StickerStore.shared
 
     @State private var packURL = ""
     @State private var packMessage: String?
     @State private var importing = false
+    @State private var directoryPacks: [StickerDirectory.DirectoryPack]?
+    @State private var directoryError: String?
 
     var body: some View {
         List {
+            Section {
+                if let directoryPacks {
+                    if directoryPacks.isEmpty {
+                        Text("No packs in the directory right now.")
+                            .foregroundStyle(Color.fwMuted)
+                    } else {
+                        ForEach(directoryPacks) { entry in
+                            NavigationLink(destination: PackPreviewView(entry: entry)) {
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(entry.name)
+                                    Text(entry.format)
+                                        .font(.caption)
+                                        .foregroundStyle(Color.fwMuted)
+                                }
+                            }
+                        }
+                    }
+                } else if let directoryError {
+                    Text(directoryError)
+                        .font(.caption)
+                        .foregroundStyle(Color.fwMuted)
+                } else {
+                    ProgressView("Loading packs…")
+                }
+            } header: {
+                Text("Browse packs")
+            } footer: {
+                Text("Packs from the directory. Tap one to preview its stickers, then import it if you want it.")
+            }
             Section {
                 TextField("Paste a pack link", text: $packURL)
                     .textInputAutocapitalization(.never)
@@ -997,6 +1263,8 @@ struct ImportPackView: View {
                         .font(.caption)
                         .foregroundStyle(Color.fwAccentSoft)
                 }
+            } header: {
+                Text("Or import by link")
             } footer: {
                 Text("Paste the link to a Hypersnap sticker pack manifest (.json). The pack is saved on this device, so it keeps working if the link goes down, and it never changes unless you import it again.")
             }
@@ -1005,6 +1273,15 @@ struct ImportPackView: View {
         .background(Color.fwBackground)
         .navigationTitle("Import a pack")
         .navigationBarTitleDisplayMode(.inline)
+        .task { await loadDirectory() }
+    }
+
+    private func loadDirectory() async {
+        do {
+            directoryPacks = try await StickerDirectory.fetch()
+        } catch {
+            directoryError = "Couldn't load the directory. You can still import a pack by link below."
+        }
     }
 
     private func importPack() async {

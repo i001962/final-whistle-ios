@@ -189,14 +189,19 @@ fi
 # the profile. Once the profile exists, manual signing bypasses
 # the account lookup entirely: the profile carries the team and
 # bundle ID, and the keychain carries the signing identity.
-PROFILE_DIR="$HOME/Library/MobileDevice/Provisioning Profiles"
+# Search both profile locations: Xcode 27.2 keeps profiles in
+# UserData/Provisioning Profiles as well as the classic
+# MobileDevice/Provisioning Profiles. The UserData one was modified
+# today, so that is where Xcode put the profile.
 PROFILE=""
-for f in "$PROFILE_DIR"/*.mobileprovision; do
-  [ -f "$f" ] || continue
-  if /usr/libexec/PlistBuddy -c "Print :Entitlements:application-identifier" /dev/stdin <<<"$(security cms -D -i "$f" 2>/dev/null)" 2>/dev/null | grep -q "app.final-whistle"; then
-    PROFILE="$f"
-    break
-  fi
+for PROFILE_DIR in "$HOME/Library/MobileDevice/Provisioning Profiles" "$HOME/Library/Developer/Xcode/UserData/Provisioning Profiles"; do
+  for f in "$PROFILE_DIR"/*.mobileprovision; do
+    [ -f "$f" ] || continue
+    if /usr/libexec/PlistBuddy -c "Print :Entitlements:application-identifier" /dev/stdin <<<"$(security cms -D -i "$f" 2>/dev/null)" 2>/dev/null | grep -q "app.final-whistle"; then
+      PROFILE="$f"
+      break 2
+    fi
+  done
 done
 if [ -z "$PROFILE" ]; then
   echo "No provisioning profile for app.final-whistle found in $PROFILE_DIR." >&2

@@ -303,6 +303,21 @@ final class StickerStore: ObservableObject {
         ) != nil
     }
 
+    /// The index of "My stickers" in packs, or nil when the user
+    /// has not added one yet. Looked up by id, not by position: an
+    /// imported pack can land at index 0 before "My stickers"
+    /// exists, and packs[0] would then be the wrong pack.
+    private var myStickersIndex: Int? {
+        packs.firstIndex(where: { $0.id.lowercased() == "mine" })
+    }
+
+    /// Make sure "My stickers" exists, and return its index.
+    private func ensureMyStickers() -> Int {
+        if let index = myStickersIndex { return index }
+        packs.append(StickerPack(id: "mine", title: "My stickers", stickers: []))
+        return packs.count - 1
+    }
+
     /// Add an image URL to "My stickers" with an explicit name, the
     /// id the shortcode uses (`:mine:<label>:`). The label is the
     /// emoji's name, so it must fit the shortcode charset: a letter,
@@ -324,10 +339,7 @@ final class StickerStore: ObservableObject {
               !packs.flatMap(\.stickers).contains(where: { $0.url == url }),
               !packs.flatMap(\.stickers).contains(where: { $0.label.lowercased() == label })
         else { return false }
-        if packs.isEmpty {
-            packs = [StickerPack(id: "mine", title: "My stickers", stickers: [])]
-        }
-        packs[0].stickers.append(Sticker(url: url, label: label))
+        packs[ensureMyStickers()].stickers.append(Sticker(url: url, label: label))
         try? store.save(packs)
         return true
     }
@@ -344,11 +356,8 @@ final class StickerStore: ObservableObject {
               parsed.scheme == "https",
               !packs.flatMap(\.stickers).contains(where: { $0.url == url })
         else { return false }
-        if packs.isEmpty {
-            packs = [StickerPack(id: "mine", title: "My stickers", stickers: [])]
-        }
         let label = parsed.deletingPathExtension().lastPathComponent
-        packs[0].stickers.append(Sticker(url: url, label: label.isEmpty ? "Sticker" : label))
+        packs[ensureMyStickers()].stickers.append(Sticker(url: url, label: label.isEmpty ? "Sticker" : label))
         try? store.save(packs)
         return true
     }
@@ -400,8 +409,8 @@ final class StickerStore: ObservableObject {
     /// Reorder "My stickers" (the pack the user curates). Called by
     /// the Manage screen's List onMove.
     func moveSticker(fromOffsets: IndexSet, toOffset: Int) {
-        guard !packs.isEmpty else { return }
-        packs[0].stickers.move(fromOffsets: fromOffsets, toOffset: toOffset)
+        guard let index = myStickersIndex else { return }
+        packs[index].stickers.move(fromOffsets: fromOffsets, toOffset: toOffset)
         try? store.save(packs)
     }
 
@@ -409,8 +418,8 @@ final class StickerStore: ObservableObject {
     /// sent first, then most recently sent. Stickers never sent keep
     /// their added order at the end.
     func sortByMostUsed() {
-        guard !packs.isEmpty else { return }
-        packs[0].stickers.sort { a, b in
+        guard let index = myStickersIndex else { return }
+        packs[index].stickers.sort { a, b in
             if a.useCount != b.useCount { return a.useCount > b.useCount }
             switch (a.lastUsedAt, b.lastUsedAt) {
             case let (x?, y?): return x > y
@@ -827,21 +836,88 @@ struct AddEmojiView: View {
 /// Manage "My stickers": delete and reorder, and one tap to sort by
 /// what the user actually sends most. Reached from the picker's
 /// "Manage stickers" row. The order here is the order in the picker.
-private struct ManageStickersView: View {
+struct ManageStickersView: View {
     @ObservedObject private var store = StickerStore.shared
 
-    private var stickers: [Sticker] {
-        store.packs.isEmpty ? [] : store.packs[0].stickers
+    @State private var packURL = ""
+    @State private var packMessage: String?
+    @State private var importing = false
+
+    /// "My stickers", looked up by id: an imported pack can land
+    /// at index 0 before "My stickers" exists, and packs[0] would
+    /// then be the wrong pack.
+    private var myStickers: [Sticker] {
+        store.packs.first(where: { $0.id.lowercased() == "mine" })?.stickers ?? []
     }
 
     var body: some View {
         List {
             Section {
-                if stickers.isEmpty {
+                if store.packs.isEmpty {
+                    Text("No packs yet. Import one below, or add a single emoji from the sticker tray.")
+                        .foregroundStyle(Color.fwMuted)
+                } else {
+                    ForEach(store.packs, id: \.id) { pack in
+                        HStack(spacing: 12) {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(pack.title)
+                                    .font(.subheadline)
+                                    .foregroundStyle(Color.fwText)
+                                Text("\(pack.stickers.count) sticker\(pack.stickers.count == 1 ? "" : "s")")
+                                    .font(.caption)
+                                    .foregroundStyle(Color.fwMuted)
+                            }
+                            Spacer()
+                            if StickerStore.builtInPacks.contains(where: { $0.id.lowercased() == pack.id.lowercased() }) {
+                                Text("Built-in")
+                                    .font(.caption)
+                                    .foregroundStyle(Color.fwMuted)
+                            } else if pack.id.lowercased() == "mine" {
+                                Text("Yours")
+                                    .font(.caption)
+                                    .foregroundStyle(Color.fwMuted)
+                            }
+                        }
+                    }
+                    .onDelete { offsets in
+                        let ids = offsets.map { store.packs[$0].id }
+                        for id in ids {
+                            store.removePack(id: id)
+                        }
+                    }
+                }
+            } header: {
+                Text("Packs")
+            } footer: {
+                Text("Swipe left to remove a pack. Removing a pack does not change casts you already sent — those carry the picture in the cast itself. A built-in pack stays available from the app even after you remove your copy.")
+            }
+
+            Section {
+                TextField("Paste a pack link", text: $packURL)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                    .submitLabel(.done)
+                    .onSubmit { Task { await importPack() } }
+                Button(importing ? "Importing…" : "Import pack") { Task { await importPack() } }
+                    .foregroundStyle(Color.fwAccent)
+                    .disabled(importing || packURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                if let packMessage {
+                    Text(packMessage)
+                        .font(.caption)
+                        .foregroundStyle(Color.fwAccentSoft)
+                }
+            } header: {
+                Text("Import a pack")
+            } footer: {
+                Text("Paste the link to a farcaster-sticker-pack manifest (.json). The pack is saved on this device, so it keeps working if the link goes down, and it never changes unless you import it again.")
+            }
+
+            Section {
+                if myStickers.isEmpty {
                     Text("No stickers yet.")
                         .foregroundStyle(Color.fwMuted)
                 } else {
-                    ForEach(stickers, id: \.url) { sticker in
+                    ForEach(myStickers, id: \.url) { sticker in
                         HStack(spacing: 12) {
                             AsyncImage(url: URL(string: sticker.url)) { phase in
                                 switch phase {
@@ -874,7 +950,7 @@ private struct ManageStickersView: View {
                         }
                     }
                     .onDelete { offsets in
-                        let urls = offsets.map { stickers[$0].url }
+                        let urls = offsets.map { myStickers[$0].url }
                         for url in urls {
                             store.removeSticker(url: url)
                         }
@@ -904,5 +980,20 @@ private struct ManageStickersView: View {
         .toolbar {
             EditButton()
         }
+    }
+
+    private func importPack() async {
+        let raw = packURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !raw.isEmpty else { return }
+        importing = true
+        packMessage = nil
+        do {
+            let pack = try await store.importPack(from: raw)
+            packURL = ""
+            packMessage = "Added \(pack.title) (\(pack.stickers.count) stickers)."
+        } catch {
+            packMessage = error.localizedDescription
+        }
+        importing = false
     }
 }

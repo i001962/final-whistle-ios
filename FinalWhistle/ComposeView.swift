@@ -59,6 +59,8 @@ struct ComposeView: View {
     /// button. Paste a direct image link and a name, and it joins
     /// the tray as :mine:<name>:.
     @State private var showingAddEmoji = false
+    @State private var showingManageStickers = false
+    @State private var stickerToRemove: Sticker?
 
     /// The @mention being typed, if any, and the users that match
     /// it. When the text ends with @ + word characters, the composer
@@ -245,6 +247,9 @@ struct ComposeView: View {
                                     .frame(width: 44, height: 44)
                                 }
                                 .accessibilityLabel(sticker.label)
+                                .onLongPressGesture {
+                                    stickerToRemove = sticker
+                                }
                             }
                             // Your own emoji: paste a direct image link
                             // and give it a name, and it joins the tray
@@ -260,6 +265,19 @@ struct ComposeView: View {
                                     .overlay(Circle().stroke(Color.fwLine, lineWidth: 1))
                             }
                             .accessibilityLabel("Add your own emoji")
+                            // Manage packs and stickers: import a pack,
+                            // remove a pack or a sticker, reorder.
+                            Button {
+                                showingManageStickers = true
+                            } label: {
+                                Image(systemName: "slider.horizontal.3")
+                                    .font(.title3)
+                                    .foregroundStyle(Color.fwMuted)
+                                    .frame(width: 44, height: 44)
+                                    .background(Color.fwPanel, in: Circle())
+                                    .overlay(Circle().stroke(Color.fwLine, lineWidth: 1))
+                            }
+                            .accessibilityLabel("Manage stickers")
                         }
                         .padding(.vertical, 4)
                     }
@@ -436,6 +454,26 @@ struct ComposeView: View {
             }
             .sheet(isPresented: $showingAddEmoji) {
                 AddEmojiView()
+            }
+            .sheet(isPresented: $showingManageStickers) {
+                NavigationStack {
+                    ManageStickersView()
+                }
+            }
+            .confirmationDialog(
+                "Remove this sticker?",
+                isPresented: .constant(stickerToRemove != nil),
+                presenting: stickerToRemove
+            ) { sticker in
+                Button("Remove", role: .destructive) {
+                    StickerStore.shared.removeSticker(url: sticker.url)
+                    stickerToRemove = nil
+                }
+                Button("Cancel", role: .cancel) {
+                    stickerToRemove = nil
+                }
+            } message: { sticker in
+                Text("\(StickerStore.shared.shortcode(for: sticker.url) ?? sticker.label) will stop appearing in the tray. Casts you already sent keep the picture.")
             }
         }
     }

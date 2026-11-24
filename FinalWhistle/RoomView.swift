@@ -100,6 +100,8 @@ struct RoomView: View {
     /// button. Paste a direct image link and a name, and it joins
     /// the tray as :mine:<name>:.
     @State private var showingAddEmoji = false
+    @State private var showingManageStickers = false
+    @State private var stickerToRemove: Sticker?
     @State private var likedHashes: Set<String> = []
     @State private var composerFocused = false
     /// The composer's measured content height, reported by the
@@ -178,6 +180,26 @@ struct RoomView: View {
         }
         .sheet(isPresented: $showingAddEmoji) {
             AddEmojiView()
+        }
+        .sheet(isPresented: $showingManageStickers) {
+            NavigationStack {
+                ManageStickersView()
+            }
+        }
+        .confirmationDialog(
+            "Remove this sticker?",
+            isPresented: .constant(stickerToRemove != nil),
+            presenting: stickerToRemove
+        ) { sticker in
+            Button("Remove", role: .destructive) {
+                StickerStore.shared.removeSticker(url: sticker.url)
+                stickerToRemove = nil
+            }
+            Button("Cancel", role: .cancel) {
+                stickerToRemove = nil
+            }
+        } message: { sticker in
+            Text("\(StickerStore.shared.shortcode(for: sticker.url) ?? sticker.label) will stop appearing in the tray. Casts you already sent keep the picture.")
         }
     }
 
@@ -303,6 +325,9 @@ struct RoomView: View {
                                 .frame(width: 44, height: 44)
                             }
                             .accessibilityLabel(sticker.label)
+                            .onLongPressGesture {
+                                stickerToRemove = sticker
+                            }
                         }
                         // Your own emoji: paste a direct image link
                         // and give it a name, and it joins the tray
@@ -318,6 +343,19 @@ struct RoomView: View {
                                 .overlay(Circle().stroke(Color.fwLine, lineWidth: 1))
                         }
                         .accessibilityLabel("Add your own emoji")
+                        // Manage packs and stickers: import a pack,
+                        // remove a pack or a sticker, reorder.
+                        Button {
+                            showingManageStickers = true
+                        } label: {
+                            Image(systemName: "slider.horizontal.3")
+                                .font(.title3)
+                                .foregroundStyle(Color.fwMuted)
+                                .frame(width: 44, height: 44)
+                                .background(Color.fwPanel, in: Circle())
+                                .overlay(Circle().stroke(Color.fwLine, lineWidth: 1))
+                        }
+                        .accessibilityLabel("Manage stickers")
                     }
                     .padding(.horizontal, 16)
                     .padding(.vertical, 8)

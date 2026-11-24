@@ -140,11 +140,56 @@ extension Cast {
         }
         return pieces.flatMap { piece -> [CastTextSegment] in
             guard case .text(let string) = piece else { return [piece] }
+            return Self.markdownLinkify(string)
+        }.flatMap { piece -> [CastTextSegment] in
+            guard case .text(let string) = piece else { return [piece] }
             return Self.linkify(string)
         }.flatMap { piece -> [CastTextSegment] in
             guard case .text(let string) = piece else { return [piece] }
             return Self.emojify(string, embeds: imageEmbedURLs)
         }
+    }
+
+    /// Split a plain-text piece on Markdown links `[label](url)`.
+    /// A Markdown link becomes a link segment whose display is the
+    /// label, not the URL — the "if you know you know" way to write
+    /// a labeled link. Anything that is not a well-formed Markdown
+    /// link stays literal text, so a stray `[` or `(` never breaks
+    /// the render. Runs before linkify, so the URL inside the
+    /// parens is not also picked up as a bare link. The label is
+    /// display text only: it is not scanned for shortcodes.
+    private static func markdownLinkify(_ text: String) -> [CastTextSegment] {
+        guard let regex = try? NSRegularExpression(pattern: #"\[([^\]]+)\]\(([^)\s]+)\)"#) else {
+            return [.text(text)]
+        }
+        let nsText = text as NSString
+        let matches = regex.matches(in: text, options: [], range: NSRange(location: 0, length: nsText.length))
+        guard !matches.isEmpty else { return [.text(text)] }
+        var out: [CastTextSegment] = []
+        var cursor = text.startIndex
+        for match in matches {
+            guard match.numberOfRanges == 3,
+                  let fullRange = Range(match.range, in: text),
+                  let labelRange = Range(match.range(at: 1), in: text),
+                  let urlRange = Range(match.range(at: 2), in: text)
+            else { continue }
+            if fullRange.lowerBound > cursor {
+                out.append(.text(String(text[cursor..<fullRange.lowerBound])))
+            }
+            let label = String(text[labelRange])
+            let raw = String(text[urlRange])
+            let href = raw.contains("://") ? raw : "https://" + raw
+            if let url = URL(string: href) {
+                out.append(.link(url: url, display: label))
+            } else {
+                out.append(.text(String(text[fullRange])))
+            }
+            cursor = fullRange.upperBound
+        }
+        if cursor < text.endIndex {
+            out.append(.text(String(text[cursor..<text.endIndex])))
+        }
+        return out.isEmpty ? [.text(text)] : out
     }
 
     /// Split a plain-text piece on `:packid:emojiconid:` shortcodes.

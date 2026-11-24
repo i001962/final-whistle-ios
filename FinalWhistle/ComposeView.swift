@@ -167,6 +167,41 @@ struct ComposeView: View {
         return nil
     }
 
+    /// Remove a URL from the text, but only where it is a bare
+    /// link. A URL that is the destination of a Markdown link
+    /// `[label](url)` is left alone: the Markdown is the labeled
+    /// link, and stripping the URL would leave a broken
+    /// `[label]()`. The reader renders the Markdown as the label,
+    /// so the URL never shows as text.
+    private static func stripBareLink(_ link: String, from text: String) -> String {
+        let pattern = #"\[([^\]]+)\]\(([^)\s]+)\)"#
+        guard let regex = try? NSRegularExpression(pattern: pattern) else {
+            return text.replacingOccurrences(of: link, with: "")
+        }
+        let nsText = text as NSString
+        let matches = regex.matches(in: text, options: [], range: NSRange(location: 0, length: nsText.length))
+        // The URL parts of Markdown links: a bare occurrence of the
+        // link inside one of these is protected.
+        let protected = matches.compactMap { match -> NSRange? in
+            guard match.numberOfRanges == 3 else { return nil }
+            return match.range(at: 2)
+        }
+        var result = ""
+        var cursor = text.startIndex
+        var searchStart = text.startIndex
+        while let found = text.range(of: link, range: searchStart..<text.endIndex) {
+            let foundNS = NSRange(found, in: text)
+            let isProtected = protected.contains { NSIntersectionRange($0, foundNS).length == foundNS.length }
+            if !isProtected {
+                result += text[cursor..<found.lowerBound]
+                cursor = found.upperBound
+            }
+            searchStart = found.upperBound
+        }
+        result += text[cursor..<text.endIndex]
+        return result
+    }
+
     /// Every https URL in the text, in order, deduped. A pasted link
     /// becomes an embed on its own — the user does not have to use the
     /// link field or know what an embed is.
@@ -491,9 +526,12 @@ struct ComposeView: View {
             // quote already takes 1, so a quote leaves room for 1
             // link and a plain post or reply leaves room for 2. When
             // the budget is tight the stickers win and the links
-            // past the budget stay as text. Every link that is
+            // past the budget stay as text. Every bare link that is
             // attached is removed from the text, so the post does
             // not show the URL as text above the picture or card.
+            // A Markdown link `[label](url)` is the exception: its
+            // URL is attached as the embed, but the Markdown stays
+            // in the text, and the reader renders it as the label.
             // Sticker URLs are not in the text (only their shortcode
             // is), so they are never stripped.
             var candidates: [String] = []
@@ -509,7 +547,7 @@ struct ComposeView: View {
             let embeds = stickerEmbeds + links
             var sendText = text
             for link in links {
-                sendText = sendText.replacingOccurrences(of: link, with: "")
+                sendText = Self.stripBareLink(link, from: sendText)
             }
             sendText = sendText.trimmingCharacters(in: .whitespacesAndNewlines)
             sendText = sendText.replacingOccurrences(of: "\n{3,}", with: "\n\n", options: .regularExpression)

@@ -435,7 +435,7 @@ struct CastTextView: View {
             return nil
         })
         for url in urls where emojiImages[url] == nil {
-            guard let (data, _) = try? await URLSession.shared.data(from: url),
+            guard let data = await StickerStore.shared.imageData(for: url),
                   let image = UIImage(data: data)
             else { continue }
             emojiImages[url] = resizedForInline(image)

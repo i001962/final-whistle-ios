@@ -421,7 +421,7 @@ struct WYSIWYGEditor: UIViewRepresentable {
         guard SharedEmojiImageCache.shared.beginFetch(url) else { return }
         Task {
             defer { SharedEmojiImageCache.shared.endFetch(url) }
-            guard let (data, _) = try? await URLSession.shared.data(from: url),
+            guard let data = await StickerStore.shared.imageData(for: url),
                   let image = UIImage(data: data)
             else { return }
             SharedEmojiImageCache.shared.set(image, for: url)

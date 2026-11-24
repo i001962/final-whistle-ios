@@ -273,7 +273,7 @@ struct ComposeView: View {
                                 Button {
                                     attachSticker(url: sticker.url)
                                 } label: {
-                                    AsyncImage(url: URL(string: sticker.url)) { phase in
+                                    AsyncImage(url: StickerStore.shared.resolvedImageURL(for: sticker.url)) { phase in
                                         switch phase {
                                         case .success(let image):
                                             image.resizable().scaledToFit()

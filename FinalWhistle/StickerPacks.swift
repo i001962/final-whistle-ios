@@ -1,4 +1,5 @@
 import SwiftUI
+import CryptoKit
 
 // MARK: - Stickers (Quilcast's stickers.tsx + server/stickers.mjs, Telegram-style packs)
 //
@@ -88,6 +89,9 @@ final class StickerStore: ObservableObject {
 
     private init() {
         packs = (try? store.load()) ?? [StickerPack(id: "mine", title: "My stickers", stickers: [])]
+        // Download the built-in pack's images in the background so
+        // the stickers render from the device once they land.
+        ensureImagesForAllKnownPacks()
     }
 
     /// The hosted-pack URL for a sticker, mirroring Quilcast's
@@ -341,6 +345,7 @@ final class StickerStore: ObservableObject {
         else { return false }
         packs[ensureMyStickers()].stickers.append(Sticker(url: url, label: label))
         try? store.save(packs)
+        Task { await ensureImage(for: parsed) }
         return true
     }
 
@@ -359,6 +364,7 @@ final class StickerStore: ObservableObject {
         let label = parsed.deletingPathExtension().lastPathComponent
         packs[ensureMyStickers()].stickers.append(Sticker(url: url, label: label.isEmpty ? "Sticker" : label))
         try? store.save(packs)
+        Task { await ensureImage(for: parsed) }
         return true
     }
 
@@ -412,6 +418,137 @@ final class StickerStore: ObservableObject {
     /// True when a sticker URL belongs to a built-in pack.
     static func isBuiltInSticker(url: String) -> Bool {
         builtInPacks.flatMap(\.stickers).contains(where: { $0.url == url })
+    }
+
+    // MARK: - Local sticker image store
+    //
+    // A pack manifest is pinned on the device at import, but the
+    // images it names are still fetched from their URLs every time
+    // they are shown. That leaves the pack half-pinned: if the
+    // image host goes down the stickers break, and if the host
+    // swaps the bytes at a URL the picture on a user's cast changes
+    // meaning. So the app also downloads each pack image once,
+    // verifies it against the manifest's sha256 when the manifest
+    // gives one, and stores the bytes on the device. Rendering
+    // prefers the stored copy and only falls back to the remote
+    // URL when there is no stored copy yet. A stored image is
+    // keyed by its URL, so it also covers an old cast whose embed
+    // URL matches a stored one. Nothing here is a cache that can
+    // be evicted: these are the pack's files, kept until the
+    // sticker or pack is removed.
+
+    /// The directory that holds stored sticker images, next to the
+    /// saved pack manifests.
+    private static var imageDirectory: URL {
+        FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("app.final-whistle/sticker-images", isDirectory: true)
+    }
+
+    private static func sha256Hex(_ data: Data) -> String {
+        SHA256.hash(data: data).compactMap { String(format: "%02x", $0) }.joined()
+    }
+
+    /// The local file a remote image URL maps to. The name is the
+    /// SHA-256 of the URL itself, so it is stable for a given URL
+    /// and unique across packs; the extension is kept from the URL
+    /// when it has one so the file still reads as an image.
+    private static func localFileURL(for remoteURL: URL) -> URL {
+        let name = sha256Hex(Data(remoteURL.absoluteString.utf8))
+        let ext = remoteURL.pathExtension
+        let fileName = ext.isEmpty ? name : name + "." + ext
+        return imageDirectory.appendingPathComponent(fileName)
+    }
+
+    /// The URL to load an image from: the stored local file when
+    /// the image is on the device, otherwise the remote URL.
+    /// AsyncImage and URLSession both read a file URL, so callers
+    /// use this result directly and need no other change.
+    static func resolvedImageURL(for url: URL) -> URL {
+        let local = localFileURL(for: url)
+        return FileManager.default.fileExists(atPath: local.path) ? local : url
+    }
+
+    /// The URL to load an image from, for a sticker URL string.
+    /// Returns nil when the string is not a URL.
+    static func resolvedImageURL(for urlString: String) -> URL? {
+        guard let url = URL(string: urlString) else { return nil }
+        return resolvedImageURL(for: url)
+    }
+
+    /// The image bytes for a remote URL: the stored local file when
+    /// it is on the device, otherwise a fetch from the remote URL.
+    func imageData(for url: URL) async -> Data? {
+        let local = Self.localFileURL(for: url)
+        if FileManager.default.fileExists(atPath: local.path) {
+            return try? Data(contentsOf: local)
+        }
+        guard let (data, _) = try? await URLSession.shared.data(from: url) else { return nil }
+        return data
+    }
+
+    /// Verify downloaded bytes against the manifest's sha256 when
+    /// one is given, then store them on the device. Returns false
+    /// when the bytes do not match the manifest (the host served
+    /// different bytes than the manifest describes) or the write
+    /// fails; the sticker still renders from its remote URL then.
+    @discardableResult
+    private static func storeImage(data: Data, for remoteURL: URL, expectedSHA256: String?) -> Bool {
+        if let expected = expectedSHA256,
+           !expected.isEmpty,
+           sha256Hex(data).lowercased() != expected.lowercased() {
+            return false
+        }
+        do {
+            try FileManager.default.createDirectory(at: imageDirectory, withIntermediateDirectories: true)
+            try data.write(to: localFileURL(for: remoteURL), options: .atomic)
+            return true
+        } catch {
+            return false
+        }
+    }
+
+    /// Download and store one image by URL, when it is not
+    /// already on the device. There is no manifest sha256 to verify
+    /// against here (a user-added sticker), so the bytes store as
+    /// they arrive; the user chose the URL.
+    func ensureImage(for url: URL) async {
+        guard url.scheme == "https",
+              !FileManager.default.fileExists(atPath: Self.localFileURL(for: url).path),
+              let (data, _) = try? await URLSession.shared.data(from: url)
+        else { return }
+        _ = Self.storeImage(data: data, for: url, expectedSHA256: nil)
+    }
+
+    /// Download and store every sticker image of a pack that is
+    /// not already on the device, verifying each against the
+    /// manifest's sha256. Downloads run concurrently. A failed
+    /// download or a hash mismatch is skipped, not fatal: that
+    /// sticker keeps rendering from its remote URL.
+    func ensureImages(for pack: StickerPack) async {
+        await withTaskGroup(of: Void.self) { group in
+            for sticker in pack.stickers {
+                guard let url = URL(string: sticker.url),
+                      url.scheme == "https",
+                      !FileManager.default.fileExists(atPath: Self.localFileURL(for: url).path)
+                else { continue }
+                group.addTask {
+                    guard let (data, _) = try? await URLSession.shared.data(from: url) else { return }
+                    _ = Self.storeImage(data: data, for: url, expectedSHA256: sticker.sha256)
+                }
+            }
+        }
+    }
+
+    /// Download and store the images of every known pack (built-in
+    /// and installed) that are not already on the device. Runs in
+    /// the background; the tray renders from remote URLs until a
+    /// local copy lands, then prefers it.
+    func ensureImagesForAllKnownPacks() {
+        Task {
+            for pack in allKnownPacks {
+                await ensureImages(for: pack)
+            }
+        }
     }
 
     /// Remove a sticker from every pack that has it. Built-in
@@ -533,6 +670,9 @@ final class StickerStore: ObservableObject {
             packs.append(pack)
         }
         try? store.save(packs)
+        // Download the pack's images in the background; the tray
+        // renders from remote URLs until the local copies land.
+        Task { await ensureImages(for: pack) }
         return pack
     }
 }
@@ -574,7 +714,7 @@ struct StickerView: View {
     var maxSize: CGFloat = 96
 
     var body: some View {
-        AsyncImage(url: url) { phase in
+        AsyncImage(url: StickerStore.shared.resolvedImageURL(for: url)) { phase in
             switch phase {
             case .success(let image):
                 image.resizable().scaledToFit()
@@ -638,7 +778,7 @@ struct StickerPickerSheet: View {
                                     store.recordUse(url: sticker.url)
                                     onPick(sticker.url)
                                 } label: {
-                                    AsyncImage(url: URL(string: sticker.url)) { phase in
+                                    AsyncImage(url: StickerStore.shared.resolvedImageURL(for: sticker.url)) { phase in
                                         switch phase {
                                         case .success(let image):
                                             image.resizable().scaledToFit()
@@ -942,7 +1082,7 @@ struct ManageStickersView: View {
                 } else {
                     ForEach(myStickers, id: \.url) { sticker in
                         HStack(spacing: 12) {
-                            AsyncImage(url: URL(string: sticker.url)) { phase in
+                            AsyncImage(url: StickerStore.shared.resolvedImageURL(for: sticker.url)) { phase in
                                 switch phase {
                                 case .success(let image):
                                     image.resizable().scaledToFit()

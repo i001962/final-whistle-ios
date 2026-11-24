@@ -168,12 +168,37 @@ fi
 # even though the pbxproj was discarded and re-pulled. The two
 # invocations are written out (instead of an args array) because the
 # Mac's bash 3.2 treats an empty array as unbound under `set -u`.
+# Use manual signing with the provisioning profile the Xcode
+# GUI creates. The CLI cannot read the Apple ID account (the
+# accounts plist is unreadable from the CLI), so xcodebuild cannot
+# create a profile itself and fails with No Account. But the
+# signing identities ARE in the keychain and the GUI can create
+# the profile. Once the profile exists, manual signing bypasses
+# the account lookup entirely: the profile carries the team and
+# bundle ID, and the keychain carries the signing identity.
+PROFILE_DIR="$HOME/Library/MobileDevice/Provisioning Profiles"
+PROFILE=""
+for f in "$PROFILE_DIR"/*.mobileprovision; do
+  [ -f "$f" ] || continue
+  if /usr/libexec/PlistBuddy -c "Print :Entitlements:application-identifier" /dev/stdin <<<"$(security cms -D -i "$f" 2>/dev/null)" 2>/dev/null | grep -q "app.final-whistle"; then
+    PROFILE="$f"
+    break
+  fi
+done
+if [ -z "$PROFILE" ]; then
+  echo "No provisioning profile for app.final-whistle found in $PROFILE_DIR." >&2
+  echo "Build once in Xcode (open the project, select the FinalWhistle target, Signing & Capabilities, team 5U3S6E48S9, then Product > Build). Xcode will create the profile. Then re-run this script." >&2
+  exit 1
+fi
+PROFILE_NAME=$(/usr/libexec/PlistBuddy -c "Print :Name" /dev/stdin <<<"$(security cms -D -i "$PROFILE" 2>/dev/null)" 2>/dev/null || echo "")
+PROFILE_UUID=$(basename "$PROFILE" .mobileprovision)
+echo "Using provisioning profile $PROFILE_NAME ($PROFILE_UUID)." >&2
 if [ -n "$TEAM" ]; then
   xcodebuild -scheme "$APP" -destination "id=$UDID" -derivedDataPath "$OUT" \
-    -allowProvisioningUpdates -allowProvisioningDeviceRegistration build DEVELOPMENT_TEAM="$TEAM" >>"$LOG" 2>&1 || fail Build
+    build DEVELOPMENT_TEAM="$TEAM" CODE_SIGN_STYLE=Manual PROVISIONING_PROFILE_SPECIFIER="$PROFILE_NAME" CODE_SIGN_IDENTITY="Apple Development" >>"$LOG" 2>&1 || fail Build
 else
   xcodebuild -scheme "$APP" -destination "id=$UDID" -derivedDataPath "$OUT" \
-    -allowProvisioningUpdates -allowProvisioningDeviceRegistration build >>"$LOG" 2>&1 || fail Build
+    build CODE_SIGN_STYLE=Manual PROVISIONING_PROFILE_SPECIFIER="$PROFILE_NAME" CODE_SIGN_IDENTITY="Apple Development" >>"$LOG" 2>&1 || fail Build
 fi
 xcrun devicectl device install app --device "$UDID" \
   "$OUT/Build/Products/Debug-iphoneos/$APP.app" >>"$LOG" 2>&1 || fail Install

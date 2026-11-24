@@ -82,8 +82,18 @@ if ! git diff --quiet -- FinalWhistle.xcodeproj/project.pbxproj; then
   echo "Discarding Xcode's local rewrite of project.pbxproj (the team is saved above)."
   git checkout -- FinalWhistle.xcodeproj/project.pbxproj
 fi
+SCRIPT_SHA_BEFORE=$(shasum -a 256 "$0" 2>/dev/null | awk '{print $1}')
 git pull --ff-only origin main || { echo "git pull failed (local changes elsewhere?). Resolve them, then re-run." >&2; exit 1; }
 echo "Pulled $(git rev-parse --short HEAD)."
+# If the pull updated this script itself, bash is still executing
+# the old version it loaded at startup. Re-exec so the new version
+# runs; otherwise the next run would use the new file but this run
+# keeps the old diagnostics and the old build.
+SCRIPT_SHA_AFTER=$(shasum -a 256 "$0" 2>/dev/null | awk '{print $1}')
+if [ -n "$SCRIPT_SHA_BEFORE" ] && [ "$SCRIPT_SHA_BEFORE" != "$SCRIPT_SHA_AFTER" ]; then
+  echo "phone.sh was updated by the pull; re-running with the new version." >&2
+  exec bash "$0" "$@"
+fi
 
 # Secrets.swift holds the pfp upload API key and is gitignored, so a
 # fresh clone does not have it — but it IS listed in project.pbxproj.

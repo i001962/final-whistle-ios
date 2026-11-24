@@ -689,7 +689,6 @@ final class StickerStore: ObservableObject {
     /// new URL for a sticker, an old cast still shows the old
     /// picture — at worst its shortcode stops rendering inline and
     /// stays as text.
-    @MainActor
     /// A short, human-readable reason for a decode failure, so
     /// an unreadable pack names the key and the problem instead of
     /// blaming the link.
@@ -765,6 +764,7 @@ final class StickerStore: ObservableObject {
         return pack
     }
 
+    @MainActor
     func importPack(from urlString: String) async throws -> StickerPack {
         let raw = urlString.trimmingCharacters(in: .whitespacesAndNewlines)
         guard let url = URL(string: raw), url.scheme == "https" else {

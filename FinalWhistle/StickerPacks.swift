@@ -631,7 +631,8 @@ final class StickerStore: ObservableObject {
     }
 
     /// Import a sticker pack from a hosted manifest URL (the
-    /// farcaster-sticker-pack format). The manifest is fetched once,
+    /// Hypersnap sticker pack format (the spec calls it
+    /// farcaster-sticker-pack). The manifest is fetched once,
     /// validated, and SAVED locally — the app then uses the saved
     /// copy, never the live URL. That is the answer to both failure
     /// modes of a third-party URL: if the URL goes down, the saved
@@ -655,8 +656,13 @@ final class StickerStore: ObservableObject {
         }
         let data: Data
         do {
-            let (fetched, _) = try await URLSession.shared.data(from: url)
+            let (fetched, response) = try await URLSession.shared.data(from: url)
+            guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
+                throw PackImportError.fetchFailed
+            }
             data = fetched
+        } catch let error as PackImportError {
+            throw error
         } catch {
             throw PackImportError.fetchFailed
         }
@@ -670,13 +676,16 @@ final class StickerStore: ObservableObject {
         } catch {
             throw PackImportError.notAManifest
         }
-        guard header.format == "farcaster-sticker-pack" else { throw PackImportError.notAManifest }
+        // The spec calls the format farcaster-sticker-pack; a
+        // manifest may also call it hypersnap-sticker-pack. Either
+        // name is the same pack, and either imports.
+        guard header.format == "farcaster-sticker-pack" || header.format == "hypersnap-sticker-pack" else { throw PackImportError.notAManifest }
         guard header.version == 1 else { throw PackImportError.wrongVersion(header.version) }
         let pack: StickerPack
         do {
             pack = try JSONDecoder().decode(StickerPack.self, from: data)
         } catch {
-            throw PackImportError.notAManifest
+            throw PackImportError.unreadablePack
         }
         guard pack.id.range(of: #"^[a-z0-9_][a-z0-9_-]{0,31}$"#, options: .regularExpression) != nil else {
             throw PackImportError.badPackID
@@ -717,6 +726,7 @@ enum PackImportError: LocalizedError {
     case fetchFailed
     case tooLarge
     case notAManifest
+    case unreadablePack
     case wrongVersion(Int)
     case badPackID
     case emptyPack
@@ -728,7 +738,8 @@ enum PackImportError: LocalizedError {
         case .badURL: return "That needs to be a full https:// link to a pack file."
         case .fetchFailed: return "Couldn't fetch that link. Check the address and try again."
         case .tooLarge: return "That pack file is too big (over 128 KiB)."
-        case .notAManifest: return "That link isn't a sticker pack. It needs to be a farcaster-sticker-pack manifest."
+        case .notAManifest: return "That link isn't a sticker pack. It needs to be a Hypersnap sticker pack manifest."
+        case .unreadablePack: return "That link is a sticker pack manifest, but the pack itself couldn't be read. It may be missing its id, name, or stickers."
         case .wrongVersion(let v): return "That pack uses manifest version \(v), and this app reads version 1."
         case .badPackID: return "That pack's id isn't a valid shortcode id."
         case .emptyPack: return "That pack has no stickers in it."
@@ -987,7 +998,7 @@ struct ImportPackView: View {
                         .foregroundStyle(Color.fwAccentSoft)
                 }
             } footer: {
-                Text("Paste the link to a farcaster-sticker-pack manifest (.json). The pack is saved on this device, so it keeps working if the link goes down, and it never changes unless you import it again.")
+                Text("Paste the link to a Hypersnap sticker pack manifest (.json). The pack is saved on this device, so it keeps working if the link goes down, and it never changes unless you import it again.")
             }
         }
         .scrollContentBackground(.hidden)

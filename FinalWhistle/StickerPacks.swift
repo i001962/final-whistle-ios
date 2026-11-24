@@ -361,7 +361,7 @@ final class StickerStore: ObservableObject {
         else { return false }
         packs[ensureMyStickers()].stickers.append(Sticker(url: url, label: label))
         try? store.save(packs)
-        Task { await ensureImage(for: parsed) }
+        Task { await Self.ensureImage(for: parsed) }
         return true
     }
 
@@ -380,7 +380,7 @@ final class StickerStore: ObservableObject {
         let label = parsed.deletingPathExtension().lastPathComponent
         packs[ensureMyStickers()].stickers.append(Sticker(url: url, label: label.isEmpty ? "Sticker" : label))
         try? store.save(packs)
-        Task { await ensureImage(for: parsed) }
+        Task { await Self.ensureImage(for: parsed) }
         return true
     }
 
@@ -527,7 +527,7 @@ final class StickerStore: ObservableObject {
     /// already on the device. There is no manifest sha256 to verify
     /// against here (a user-added sticker), so the bytes store as
     /// they arrive; the user chose the URL.
-    func ensureImage(for url: URL) async {
+    static func ensureImage(for url: URL) async {
         guard url.scheme == "https",
               !FileManager.default.fileExists(atPath: Self.localFileURL(for: url).path),
               let (data, _) = try? await URLSession.shared.data(from: url)
@@ -540,7 +540,7 @@ final class StickerStore: ObservableObject {
     /// manifest's sha256. Downloads run concurrently. A failed
     /// download or a hash mismatch is skipped, not fatal: that
     /// sticker keeps rendering from its remote URL.
-    func ensureImages(for pack: StickerPack) async {
+    static func ensureImages(for pack: StickerPack) async {
         await withTaskGroup(of: Void.self) { group in
             for sticker in pack.stickers {
                 guard let url = URL(string: sticker.url),
@@ -560,9 +560,10 @@ final class StickerStore: ObservableObject {
     /// the background; the tray renders from remote URLs until a
     /// local copy lands, then prefers it.
     func ensureImagesForAllKnownPacks() {
+        let packs = allKnownPacks
         Task {
-            for pack in allKnownPacks {
-                await ensureImages(for: pack)
+            for pack in packs {
+                await Self.ensureImages(for: pack)
             }
         }
     }
@@ -699,7 +700,7 @@ final class StickerStore: ObservableObject {
         try? store.save(packs)
         // Download the pack's images in the background; the tray
         // renders from remote URLs until the local copies land.
-        Task { await ensureImages(for: pack) }
+        Task { await Self.ensureImages(for: pack) }
         return pack
     }
 }

@@ -29,6 +29,10 @@ struct Sticker: Codable, Hashable {
     /// fine.
     var useCount: Int = 0
     var lastUsedAt: Date? = nil
+    /// The manifest's sha256 for this sticker's image, when the
+    /// pack came from a manifest. ensureImages verifies a download
+    /// against it. A user-added sticker has none.
+    var sha256: String? = nil
 
     /// The hosted manifest calls the sticker's name `id`; the
     /// property stays `label` (every call site uses it), and this
@@ -40,13 +44,15 @@ struct Sticker: Codable, Hashable {
         case url
         case label = "id"
         case useCount, lastUsedAt
+        case sha256
     }
 
-    init(url: String, label: String, useCount: Int = 0, lastUsedAt: Date? = nil) {
+    init(url: String, label: String, useCount: Int = 0, lastUsedAt: Date? = nil, sha256: String? = nil) {
         self.url = url
         self.label = label
         self.useCount = useCount
         self.lastUsedAt = lastUsedAt
+        self.sha256 = sha256
     }
 }
 
@@ -742,7 +748,7 @@ struct StickerView: View {
     var maxSize: CGFloat = 96
 
     var body: some View {
-        AsyncImage(url: StickerStore.shared.resolvedImageURL(for: url)) { phase in
+        AsyncImage(url: StickerStore.resolvedImageURL(for: url)) { phase in
             switch phase {
             case .success(let image):
                 image.resizable().scaledToFit()
@@ -886,7 +892,7 @@ struct StickerTrayView: View {
                     Button {
                         onPick(sticker.url)
                     } label: {
-                        AsyncImage(url: StickerStore.shared.resolvedImageURL(for: sticker.url)) { phase in
+                        AsyncImage(url: StickerStore.resolvedImageURL(for: sticker.url)) { phase in
                             switch phase {
                             case .success(let image):
                                 image.resizable().scaledToFit()
@@ -1034,7 +1040,7 @@ struct StickerPackDetailView: View {
                 } else {
                     ForEach(pack.stickers, id: \.url) { sticker in
                         HStack(spacing: 12) {
-                            AsyncImage(url: StickerStore.shared.resolvedImageURL(for: sticker.url)) { phase in
+                            AsyncImage(url: StickerStore.resolvedImageURL(for: sticker.url)) { phase in
                                 switch phase {
                                 case .success(let image):
                                     image.resizable().scaledToFit()

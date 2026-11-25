@@ -278,6 +278,12 @@ struct RoomView: View {
                     .layoutPriority(1)
             }
 
+            // The composer is a Liquid Glass capsule (Glazier pattern
+            // 4, Chat): height U at rest, corners U / 2, growing into
+            // a card while typing. The glass is the background — the
+            // editor's own solid panel and stroke are gone, and the
+            // text view underneath is clear — so the capsule floats
+            // over the messages instead of sitting on a flat bar.
             HStack(spacing: 10) {
                 Button {
                     showStickerTray.toggle()
@@ -308,8 +314,6 @@ struct RoomView: View {
                 .frame(height: min(max(composerHeight, 44), 150))
                 .padding(.horizontal, 14)
                 .padding(.vertical, 10)
-                .background(Color.fwPanel, in: RoundedRectangle(cornerRadius: 20))
-                .overlay(RoundedRectangle(cornerRadius: 20).stroke(Color.fwLine, lineWidth: 1))
 
                 Button {
                     Task { await send() }
@@ -323,7 +327,7 @@ struct RoomView: View {
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 10)
-            .background(Color.fwBackground)
+            .glassEffect(.regular.interactive(), in: .rect(cornerRadius: GlassMetrics.composerU / 2, style: .continuous))
 
             if let sendError {
                 Text(sendError)

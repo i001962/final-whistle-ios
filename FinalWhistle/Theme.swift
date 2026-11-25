@@ -29,3 +29,16 @@ extension Color {
     static let fwAccentSoft = Color(hex: "fea282")
     static let fwLime = Color(hex: "a2e634")
 }
+
+/// Liquid Glass numbers (Glazier pattern 4, Chat; pattern 8, Viewer).
+/// U is the composer height at rest; a capsule's corners are U / 2,
+/// and the composer grows into a card with the same corner radius
+/// while typing. The glass itself is `.regular.interactive()`.
+enum GlassMetrics {
+    /// The composer capsule height at rest.
+    static let composerU: CGFloat = 52
+    /// The inset of the circle buttons inside the composer.
+    static let composerInset: CGFloat = 8
+    /// A floating control's height (title pill, close button).
+    static let barHeight: CGFloat = 44
+}

@@ -326,14 +326,21 @@ struct FullScreenImageView: View {
             )
             .onTapGesture { dismiss() }
 
+            // The close control floats over the picture (Glazier
+            // pattern 8, Viewer): a glass circle, not a filled glyph,
+            // so it stays legible over a bright image and reads as
+            // part of the viewer, not a sticker on it.
             VStack {
                 HStack {
                     Spacer()
                     Button { dismiss() } label: {
-                        Image(systemName: "xmark.circle.fill")
-                            .font(.title)
-                            .foregroundStyle(.white.opacity(0.8))
+                        Image(systemName: "xmark")
+                            .font(.title3)
+                            .foregroundStyle(.white)
+                            .frame(width: GlassMetrics.barHeight, height: GlassMetrics.barHeight)
+                            .contentShape(.circle)
                     }
+                    .glassEffect(.regular.interactive(), in: .circle)
                     .padding()
                     .accessibilityLabel("Close image")
                 }

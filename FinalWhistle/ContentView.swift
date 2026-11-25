@@ -217,8 +217,11 @@ struct ContentView: View {
             }
         }
         .padding(6)
-        .background(Color.fwPanel, in: RoundedRectangle(cornerRadius: 22))
-        .overlay(RoundedRectangle(cornerRadius: 22).stroke(Color.fwLine, lineWidth: 1))
+        // A floating Liquid Glass pill (Glazier's floating controls):
+        // the glass is the background now, not a solid panel with a
+        // stroke, so the bar floats over the feed. The selected tab's
+        // accent fill still shows inside the glass.
+        .glassEffect(.regular.interactive(), in: .rect(cornerRadius: 22, style: .continuous))
         .padding(.horizontal, 16)
         // Sits low so the feed gets the room: a small gap above the
         // pill, and only 2pt below it — the safe area already clears

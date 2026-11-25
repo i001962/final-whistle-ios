@@ -9,16 +9,24 @@ import SwiftUI
 /// Farcaster's image CDN resizes on request, so the feed loads a w=1200
 /// variant instead of the full original.
 enum CastMedia {
+    /// True when the URL is an image. Read off the path extension,
+    /// which ignores any query or fragment: a client may append a
+    /// fragment to an embed URL (`redcard.webp#e=65f63a70`, mvr's
+    /// client does this), and the fragment is never sent to the host,
+    /// so it must not change what the URL is. The old regex required
+    /// `?` or end-of-string after the extension, so a `#` fragment
+    /// made an image read as a link — the embed rendered as a preview
+    /// card and the shortcode stayed literal text.
     static func isImageURL(_ url: URL) -> Bool {
-        let string = url.absoluteString
-        if string.range(of: #"\.(png|jpe?g|gif|webp|avif)(\?|$)"#, options: [.regularExpression, .caseInsensitive]) != nil {
+        let ext = url.pathExtension.lowercased()
+        if ["png", "jpg", "jpeg", "gif", "webp", "avif"].contains(ext) {
             return true
         }
         return url.host == "imagedelivery.net" || url.host == "i.imgur.com"
     }
 
     static func isVideoURL(_ url: URL) -> Bool {
-        url.absoluteString.range(of: #"\.(m3u8|mp4|webm|mov)(\?|$)"#, options: [.regularExpression, .caseInsensitive]) != nil
+        ["m3u8", "mp4", "webm", "mov"].contains(url.pathExtension.lowercased())
     }
 
     /// imagedelivery.net/<account>/<id>/original -> /<variant>.
@@ -60,9 +68,14 @@ extension Cast {
         // renders its stickers large. An emoji:// URI that does not
         // resolve is dropped, so the shortcode stays literal text.
         // A resolved URL already present as a plain image embed is
-        // not duplicated (a duplicate id in a ForEach crashes).
+        // not duplicated (a duplicate id in a ForEach crashes). The
+        // comparison strips the fragment: a plain embed may carry one
+        // (`redcard.webp#e=65f63a70`) while the resolved URL is the
+        // bare manifest URL, and they are the same picture.
         let plain = embedURLs.filter(CastMedia.isImageURL)
-        let resolved = resolvedEmojiImageURLs.filter { !plain.contains($0) }
+        let resolved = resolvedEmojiImageURLs.filter { resolved in
+            !plain.contains { StickerFragment.strippingFragment($0) == resolved }
+        }
         return plain + resolved
     }
     var videoEmbedURLs: [URL] { embedURLs.filter(CastMedia.isVideoURL) }

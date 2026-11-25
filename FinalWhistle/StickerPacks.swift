@@ -406,10 +406,14 @@ final class StickerStore: ObservableObject {
     /// or a built-in), when it matches the hosted-pack shape
     /// (Quilcast's stickerPack check), or when it carries a
     /// `#sticker=v1` fragment naming its pack and id — someone
-    /// else's inline emoji, readable even without the pack.
+    /// else's inline emoji, readable even without the pack. The
+    /// comparison strips the fragment first: a client may append
+    /// one (`redcard.webp#e=65f63a70`), and the fragment is never
+    /// sent to the host, so the marked URL and the manifest URL are
+    /// the same picture.
     func isSticker(_ url: URL) -> Bool {
         if StickerFragment.parse(url) != nil { return true }
-        let string = url.absoluteString
+        let string = StickerFragment.strippingFragment(url).absoluteString
         if allKnownPacks.flatMap(\.stickers).contains(where: { $0.url == string }) {
             return true
         }

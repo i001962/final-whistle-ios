@@ -89,14 +89,21 @@ extension Cast {
             }
             // Catalog: the pack resolves the shortcode to an embed URL.
             if let url = StickerStore.shared.stickerURL(packID: code.packID, stickerID: code.stickerID) {
-                if embeds.contains(url) {
-                    out.append((range: code.range, url: url))
-                    claimedEmbeds.insert(url)
+                // The match strips the fragment: a client may append
+                // one to the embed (`redcard.webp#e=65f63a70`), and the
+                // fragment is never sent to the host, so the marked URL
+                // and the manifest URL are the same picture. The match
+                // returns the embed as attached (fragment and all), so
+                // the consumed list still lines up with the cast's embeds.
+                if let embed = embeds.first(where: { StickerFragment.strippingFragment($0) == url }) {
+                    out.append((range: code.range, url: embed))
+                    claimedEmbeds.insert(embed)
                 }
-                // The pack is installed but its image is not attached:
-                // the sender did not send this sticker. It stays
-                // literal text and is never positionally paired with
-                // another picture.
+                // The pack is installed: whether or not its image is
+                // attached, the shortcode is decided here. If the image
+                // is not attached the sender did not send this sticker,
+                // so it stays literal text and is never positionally
+                // paired with another picture.
                 continue
             }
             // Pack not installed, no fragment names it: a candidate

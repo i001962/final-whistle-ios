@@ -18,9 +18,11 @@ enum CastTextSegment: Hashable {
     case link(url: URL, display: String)
     /// An inline emoji: `:packid:emojiconid:` in the text whose image
     /// is one of this cast's embeds. Client-side only (no protocol
-    /// change): the shortcode resolves against the app's sticker
-    /// catalog, and it only renders inline when the resolved URL is
-    /// actually attached to this cast. Otherwise it stays literal text.
+    /// change): the shortcode resolves to its image by a
+    /// `#sticker=v1` fragment on the embed, by the sticker catalog,
+    /// or by positional pairing when there is one image per code.
+    /// It only renders inline when the resolved URL is actually
+    /// attached to this cast. Otherwise it stays literal text.
     case emoji(url: URL, alt: String)
 }
 
@@ -33,25 +35,86 @@ extension Cast {
     /// embed actually attached to the cast. Each entry is the
     /// shortcode's range in the raw text plus the resolved image URL.
     /// A shortcode with no matching embed is literal text, not emoji.
+    /// Resolution, in order: a `#sticker=v1` fragment on an embed
+    /// naming this pack and id; the sticker catalog resolving the
+    /// shortcode to an embed URL; and, when the pack is not installed
+    /// and no fragment names it, positional pairing — the codes pair
+    /// with the sticker images in order when there is one image per
+    /// code. A shortcode whose pack IS installed but whose image is
+    /// not attached stays literal text; it is not positionally
+    /// paired with some other picture.
     var inlineEmojiMatches: [(range: Range<String.Index>, url: URL)] {
-        guard let regex = try? NSRegularExpression(pattern: shortcodePattern) else { return [] }
+        Self.resolveInlineEmoji(in: text, embeds: imageEmbedURLs)
+    }
+
+    /// Resolve `:packid:emojiconid:` shortcodes in a piece of text
+    /// against this cast's image embeds. Shared by
+    /// `inlineEmojiMatches` (the full text) and `emojify` (a
+    /// plain-text piece). Returns the matches in text order.
+    private static func resolveInlineEmoji(in text: String, embeds: [URL]) -> [(range: Range<String.Index>, url: URL)] {
+        guard let regex = try? NSRegularExpression(pattern: shortcodePattern),
+              !embeds.isEmpty
+        else { return [] }
         let nsText = text as NSString
         let matches = regex.matches(in: text, range: NSRange(location: 0, length: nsText.length))
-        var out: [(range: Range<String.Index>, url: URL)] = []
+        struct Code {
+            let packID: String
+            let stickerID: String
+            let range: Range<String.Index>
+        }
+        var codes: [Code] = []
         for match in matches {
             guard match.numberOfRanges == 3,
                   let packRange = Range(match.range(at: 1), in: text),
                   let stickerRange = Range(match.range(at: 2), in: text),
                   let fullRange = Range(match.range, in: text)
             else { continue }
-            let packID = String(text[packRange])
-            let stickerID = String(text[stickerRange])
-            guard let url = StickerStore.shared.stickerURL(packID: packID, stickerID: stickerID),
-                  imageEmbedURLs.contains(url)
-            else { continue }
-            out.append((range: fullRange, url: url))
+            codes.append(Code(packID: String(text[packRange]), stickerID: String(text[stickerRange]), range: fullRange))
         }
-        return out
+        guard !codes.isEmpty else { return [] }
+        var out: [(range: Range<String.Index>, url: URL)] = []
+        var claimedEmbeds = Set<URL>()
+        var unmatched: [Code] = []
+        for code in codes {
+            // Fragment: an embed whose `#sticker=v1` names this pack
+            // and id. Works even when the pack is not installed.
+            if let embed = embeds.first(where: { embed in
+                guard let frag = StickerFragment.parse(embed) else { return false }
+                return frag.packID.lowercased() == code.packID.lowercased()
+                    && frag.stickerID.lowercased() == code.stickerID.lowercased()
+            }) {
+                out.append((range: code.range, url: embed))
+                claimedEmbeds.insert(embed)
+                continue
+            }
+            // Catalog: the pack resolves the shortcode to an embed URL.
+            if let url = StickerStore.shared.stickerURL(packID: code.packID, stickerID: code.stickerID) {
+                if embeds.contains(url) {
+                    out.append((range: code.range, url: url))
+                    claimedEmbeds.insert(url)
+                }
+                // The pack is installed but its image is not attached:
+                // the sender did not send this sticker. It stays
+                // literal text and is never positionally paired with
+                // another picture.
+                continue
+            }
+            // Pack not installed, no fragment names it: a candidate
+            // for positional pairing.
+            unmatched.append(code)
+        }
+        // Positional: the codes that could not be resolved pair with
+        // the embeds nobody claimed, in order, when there is one
+        // image per code.
+        if !unmatched.isEmpty {
+            let freeEmbeds = embeds.filter { !claimedEmbeds.contains($0) }
+            if freeEmbeds.count == unmatched.count {
+                for (code, embed) in zip(unmatched, freeEmbeds) {
+                    out.append((range: code.range, url: embed))
+                }
+            }
+        }
+        return out.sorted { $0.range.lowerBound < $1.range.lowerBound }
     }
 
     /// The embed URLs consumed by inline emoji in this cast. The
@@ -193,34 +256,21 @@ extension Cast {
     }
 
     /// Split a plain-text piece on `:packid:emojiconid:` shortcodes.
-    /// A shortcode becomes an emoji segment only when it resolves
-    /// (via the sticker catalog) to a URL that is actually one of
-    /// this cast's image embeds. Anything else stays literal text.
+    /// A shortcode becomes an emoji segment only when it resolves to
+    /// an image embed actually attached to this cast — by fragment,
+    /// by catalog URL, or by positional pairing (see
+    /// `resolveInlineEmoji`). Anything else stays literal text.
     private static func emojify(_ text: String, embeds: [URL]) -> [CastTextSegment] {
-        guard let regex = try? NSRegularExpression(pattern: shortcodePattern),
-              !embeds.isEmpty
-        else { return [.text(text)] }
-        let nsText = text as NSString
-        let matches = regex.matches(in: text, range: NSRange(location: 0, length: nsText.length))
-        guard !matches.isEmpty else { return [.text(text)] }
+        let resolved = resolveInlineEmoji(in: text, embeds: embeds)
+        guard !resolved.isEmpty else { return [.text(text)] }
         var out: [CastTextSegment] = []
         var cursor = text.startIndex
-        for match in matches {
-            guard match.numberOfRanges == 3,
-                  let fullRange = Range(match.range, in: text),
-                  let packRange = Range(match.range(at: 1), in: text),
-                  let stickerRange = Range(match.range(at: 2), in: text)
-            else { continue }
-            let packID = String(text[packRange])
-            let stickerID = String(text[stickerRange])
-            guard let url = StickerStore.shared.stickerURL(packID: packID, stickerID: stickerID),
-                  embeds.contains(url)
-            else { continue }
-            if fullRange.lowerBound > cursor {
-                out.append(.text(String(text[cursor..<fullRange.lowerBound])))
+        for (range, url) in resolved {
+            if range.lowerBound > cursor {
+                out.append(.text(String(text[cursor..<range.lowerBound])))
             }
-            out.append(.emoji(url: url, alt: String(text[fullRange])))
-            cursor = fullRange.upperBound
+            out.append(.emoji(url: url, alt: String(text[range])))
+            cursor = range.upperBound
         }
         if cursor < text.endIndex {
             out.append(.text(String(text[cursor..<text.endIndex])))

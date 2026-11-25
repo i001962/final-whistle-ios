@@ -122,6 +122,60 @@ struct StickerPack: Codable, Hashable, Identifiable {
     }
 }
 
+/// A sticker marker carried in an image URL's fragment, the part
+/// after `#`: `image.webp#sticker=v1&emoji=pack%3Aid&pack=pack&id=id`.
+/// One fragment is enough; it holds several key=value fields joined
+/// with `&`. The only rule is that the image URL can't already have
+/// a `#` of its own. Browsers never send the fragment to the host,
+/// so the provider serves the same file whatever it says — a `?query`
+/// would reach the host, which might reject it or cache it as a
+/// different file. The fragment names the sticker even when the
+/// reader has never installed the pack, so someone else's inline
+/// emoji renders as a sticker here instead of staying literal text
+/// next to a bare picture.
+struct StickerFragment {
+    let packID: String
+    let stickerID: String
+
+    /// Parse the fragment of an image URL. Returns nil when the URL
+    /// has no fragment, when `sticker` is not `v1`, or when the pack
+    /// and sticker id cannot be read. `emoji` carries both as
+    /// `pack:id` (percent-encoded); `pack` and `id` are the fallback
+    /// when `emoji` is absent.
+    static func parse(_ url: URL) -> StickerFragment? {
+        guard let fragment = url.fragment, !fragment.isEmpty else { return nil }
+        var fields: [String: String] = [:]
+        for part in fragment.split(separator: "&") {
+            guard let eq = part.firstIndex(of: "=") else { continue }
+            let key = String(part[part.startIndex..<eq])
+            let value = String(part[part.index(after: eq)...])
+            fields[key] = value.removingPercentEncoding ?? value
+        }
+        guard fields["sticker"] == "v1" else { return nil }
+        if let emoji = fields["emoji"], !emoji.isEmpty {
+            let pieces = emoji.split(separator: ":", maxSplits: 1)
+            if pieces.count == 2, !pieces[0].isEmpty, !pieces[1].isEmpty {
+                return StickerFragment(packID: String(pieces[0]), stickerID: String(pieces[1]))
+            }
+        }
+        if let pack = fields["pack"], !pack.isEmpty,
+           let id = fields["id"], !id.isEmpty {
+            return StickerFragment(packID: pack, stickerID: id)
+        }
+        return nil
+    }
+
+    /// The image URL without its fragment: the canonical address of
+    /// the picture, what the host actually serves and what the local
+    /// image cache keys on. A fragment-marked URL and its bare form
+    /// are the same image.
+    static func strippingFragment(_ url: URL) -> URL {
+        guard var components = URLComponents(url: url, resolvingAgainstBaseURL: false) else { return url }
+        components.fragment = nil
+        return components.url ?? url
+    }
+}
+
 final class StickerStore: ObservableObject {
     /// Swift 6: a static shared instance of a non-Sendable
     /// ObservableObject is a compile error without this. The store is
@@ -349,9 +403,12 @@ final class StickerStore: ObservableObject {
     }
 
     /// A URL is a sticker when it is in one of the packs (the user's
-    /// or a built-in), or when it matches the hosted-pack shape
-    /// (Quilcast's stickerPack check).
+    /// or a built-in), when it matches the hosted-pack shape
+    /// (Quilcast's stickerPack check), or when it carries a
+    /// `#sticker=v1` fragment naming its pack and id — someone
+    /// else's inline emoji, readable even without the pack.
     func isSticker(_ url: URL) -> Bool {
+        if StickerFragment.parse(url) != nil { return true }
         let string = url.absoluteString
         if allKnownPacks.flatMap(\.stickers).contains(where: { $0.url == string }) {
             return true
@@ -506,8 +563,11 @@ final class StickerStore: ObservableObject {
     /// The local file a remote image URL maps to. The name is the
     /// SHA-256 of the URL itself, so it is stable for a given URL
     /// and unique across packs; the extension is kept from the URL
-    /// when it has one so the file still reads as an image.
+    /// when it has one so the file still reads as an image. The
+    /// fragment is stripped first: a `#sticker=v1` URL and its bare
+    /// form are the same picture and share one cached file.
     private static func localFileURL(for remoteURL: URL) -> URL {
+        let remoteURL = StickerFragment.strippingFragment(remoteURL)
         let name = sha256Hex(Data(remoteURL.absoluteString.utf8))
         let ext = remoteURL.pathExtension
         let fileName = ext.isEmpty ? name : name + "." + ext
@@ -517,10 +577,12 @@ final class StickerStore: ObservableObject {
     /// The URL to load an image from: the stored local file when
     /// the image is on the device, otherwise the remote URL.
     /// AsyncImage and URLSession both read a file URL, so callers
-    /// use this result directly and need no other change.
+    /// use this result directly and need no other change. A
+    /// `#sticker=v1` fragment is stripped: the fragment is metadata
+    /// about the sticker, not part of the picture's address.
     static func resolvedImageURL(for url: URL) -> URL {
         let local = localFileURL(for: url)
-        return FileManager.default.fileExists(atPath: local.path) ? local : url
+        return FileManager.default.fileExists(atPath: local.path) ? local : StickerFragment.strippingFragment(url)
     }
 
     /// The URL to load an image from, for a sticker URL string.
